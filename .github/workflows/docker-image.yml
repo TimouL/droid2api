@@ -1,0 +1,65 @@
+name: Build and Push Docker Image to GHCR
+
+on:
+  push:
+    branches:
+      - main # 当推送到 main 分支时触发此工作流
+      - multi-key-support # 也可以是 master 分支，根据你的仓库默认分支设置
+    # You can also add tags: to trigger on new tag pushes
+  workflow_dispatch: # 允许手动触发工作流
+
+env:
+  # GHCR Docker 镜像的注册表和组织/用户名
+  REGISTRY: ghcr.io
+  # 镜像名称，通常是 GitHub 仓库名称，可以根据需要修改
+  # github.repository 环境变量会自动获取：你的GitHub用户名/你的仓库名
+  IMAGE_NAME: ${{ github.repository }} 
+
+jobs:
+  build-and-push-docker-image:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read # 允许工作流读取仓库内容
+      packages: write # 允许工作流将包（镜像）推送到 GHCR
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }} # GitHub Actions 默认环境变量，即触发工作流的用户
+          password: ${{ secrets.GITHUB_TOKEN }} # GitHub Actions 默认提供的 Token
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # 自动生成Docker标签：
+          # main/master分支：latest, sha-xxxxxx
+          # tags：v1.0.0, sha-xxxxxx
+          tags: |
+            # 默认分支 (如 main/master) 打上 latest
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+            # 当分支为 'multi-key-support' 时，同时打上 'dev' 和 'latest'
+            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/multi-key-support' }}
+            # type=raw,value=latest,enable=${{ github.ref == 'refs/heads/multi-key-support' }}
+            # 总是打上基于提交 SHA 的标签
+            type=sha
+            # 🚨 重要提示：如果想针对所有分支打上分支名标签，可以添加以下行：
+            # type=ref,event=branch
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: . # Dockerfile 的上下文路径，默认为仓库根目录
+          file: ./Dockerfile # Dockerfile 的路径，默认为仓库根目录下的 Dockerfile
+          push: true # 启用推送
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # build-args: # 如果你的 Dockerfile 需要构建参数，可以在这里定义
+          #   MY_BUILD_ARG: "value"
