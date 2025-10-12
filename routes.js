@@ -7,7 +7,7 @@ import { transformToOpenAI, getOpenAIHeaders } from './transformers/request-open
 import { transformToCommon, getCommonHeaders } from './transformers/request-common.js';
 import { AnthropicResponseTransformer } from './transformers/response-anthropic.js';
 import { OpenAIResponseTransformer } from './transformers/response-openai.js';
-import { getApiKey, recordRequestResult, getClientKeysStats } from './auth.js';
+import { getApiKey, recordRequestResult, getClientKeysStats, getClientKeyByIndex, getLastClientKeyUpdate } from './auth.js';
 import { getKeyManager } from './key-manager.js';
 import { isServerKeySet, setServerKey } from './server-auth.js';
 
@@ -1055,11 +1055,29 @@ router.get('/status', (req, res) => {
                 });
               }
             }
+            // 客户端key更新检测 (仅针对客户端模式)
+            let lastKnownUpdate = null;
+            async function checkClientKeyUpdate() {
+              try {
+                const resp = await fetch('/status/client-key-update?t=' + Date.now());
+                const data = await resp.json();
+                if (data.lastUpdate && lastKnownUpdate && data.lastUpdate > lastKnownUpdate) {
+                  // 检测到新的客户端key被使用，刷新页面
+                  location.reload();
+                }
+                lastKnownUpdate = data.lastUpdate;
+              } catch(e) {}
+            }
+
             // 首次进入：不自动刷新余额，仅初始化控件
-            window.addEventListener('load', () => { 
+            window.addEventListener('load', () => {
               initAutoControls();
               initThresholdControls();
               initBatchControls();
+
+              // 启动客户端key更新检测 (每5秒检查一次)
+              checkClientKeyUpdate(); // 初始化lastKnownUpdate
+              setInterval(checkClientKeyUpdate, 5000);
             });
           </script>
         </div>
@@ -1206,28 +1224,45 @@ async function fetchUsageForKeyRaw(apiKey) {
 // GET /status/balance/:index - fetch balance for specific key by index
 router.get('/status/balance/:index', async (req, res) => {
   try {
-    const keyManager = getKeyManager();
-    if (!keyManager) {
-      return res.status(400).json({ error: 'Multi-key not configured' });
-    }
     const idx = parseInt(req.params.index, 10);
-    if (Number.isNaN(idx) || idx < 0 || idx >= keyManager.keys.length) {
+    if (Number.isNaN(idx) || idx < 0) {
       return res.status(400).json({ error: 'Invalid index' });
     }
-    const keyObj = keyManager.keys[idx];
-    if (!keyObj || keyObj.deprecated) {
-      return res.status(404).json({ error: 'Key not active' });
+
+    const keyManager = getKeyManager();
+
+    // Try KeyManager first (multi-key configuration)
+    if (keyManager) {
+      if (idx >= keyManager.keys.length) {
+        return res.status(400).json({ error: 'Invalid index' });
+      }
+      const keyObj = keyManager.keys[idx];
+      if (!keyObj || keyObj.deprecated) {
+        return res.status(404).json({ error: 'Key not active' });
+      }
+      const usage = await fetchUsageForKeyRaw(keyObj.key);
+      if (usage.error) {
+        return res.status(200).json({ index: idx, maskedKey: keyManager.maskKey(keyObj.key), error: usage.error, fetchedAt: new Date().toISOString() });
+      }
+      const total = Number(usage.totalAllowance||0);
+      const used = Number(usage.used||0);
+      const remaining = Math.max(0, total - used);
+      // 同步到 KeyManager，余额用尽则在轮询中跳过
+      try { keyManager.setBalanceByIndex(idx, { totalAllowance: total, used, remaining, fetchedAt: new Date().toISOString() }); } catch {}
+      return res.json({ index: idx, maskedKey: keyManager.maskKey(keyObj.key), ...usage, fetchedAt: new Date().toISOString() });
     }
-    const usage = await fetchUsageForKeyRaw(keyObj.key);
-    if (usage.error) {
-      return res.status(200).json({ index: idx, maskedKey: keyManager.maskKey(keyObj.key), error: usage.error, fetchedAt: new Date().toISOString() });
+
+    // Try client key (client authorization mode)
+    const clientKey = getClientKeyByIndex(idx);
+    if (clientKey) {
+      const usage = await fetchUsageForKeyRaw(clientKey);
+      if (usage.error) {
+        return res.status(200).json({ index: idx, error: usage.error, fetchedAt: new Date().toISOString() });
+      }
+      return res.json({ index: idx, ...usage, fetchedAt: new Date().toISOString() });
     }
-    const total = Number(usage.totalAllowance||0);
-    const used = Number(usage.used||0);
-    const remaining = Math.max(0, total - used);
-    // 同步到 KeyManager，余额用尽则在轮询中跳过
-    try { keyManager.setBalanceByIndex(idx, { totalAllowance: total, used, remaining, fetchedAt: new Date().toISOString() }); } catch {}
-    return res.json({ index: idx, maskedKey: keyManager.maskKey(keyObj.key), ...usage, fetchedAt: new Date().toISOString() });
+
+    return res.status(400).json({ error: 'No key configuration available' });
   } catch (error) {
     logError('Error in GET /status/balance/:index', error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -1284,5 +1319,15 @@ router.post('/status/skip-threshold', express.json(), (req, res) => {
     res.json({ ok: true, skipThreshold: km.getSkipThreshold?.() ?? 0 });
   } catch (e) {
     res.status(500).json({ error: 'Failed to set threshold' });
+  }
+});
+
+// Get last client key update timestamp (for auto-refresh detection)
+router.get('/status/client-key-update', (_req, res) => {
+  try {
+    const timestamp = getLastClientKeyUpdate();
+    res.json({ lastUpdate: timestamp });
+  } catch (e) {
+    res.status(200).json({ lastUpdate: null });
   }
 });

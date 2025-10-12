@@ -17,6 +17,8 @@ let lastSelectedKey = null; // Track last selected key for result recording
 
 // Client-provided keys statistics (for client authorization mode)
 let clientKeysStats = new Map(); // key -> { success, fail, endpoints: Map<endpoint, {success, fail}> }
+let clientKeysArray = []; // Ordered array for indexing: [{ key: originalKey, stats: statsRef }]
+let lastClientKeyUpdate = null; // Track last update timestamp for client keys
 
 const REFRESH_URL = 'https://api.workos.com/user_management/authenticate';
 const REFRESH_INTERVAL_HOURS = 6; // Refresh every 6 hours
@@ -357,12 +359,19 @@ export function recordRequestResult(endpoint, success, statusCode) {
     }
   } else if (authSource === 'client' && lastSelectedKey) {
     // Record statistics for client-provided keys
+    let isNewKey = false;
     if (!clientKeysStats.has(lastSelectedKey)) {
       clientKeysStats.set(lastSelectedKey, {
         success: 0,
         fail: 0,
         endpoints: new Map()
       });
+      // Add to ordered array for indexing
+      clientKeysArray.push({
+        key: lastSelectedKey,
+        stats: clientKeysStats.get(lastSelectedKey)
+      });
+      isNewKey = true;
     }
 
     const keyStats = clientKeysStats.get(lastSelectedKey);
@@ -385,7 +394,12 @@ export function recordRequestResult(endpoint, success, statusCode) {
       endpointStats.fail++;
     }
 
-    logDebug(`Client key stats updated: ${maskKey(lastSelectedKey)} - Success: ${keyStats.success}, Fail: ${keyStats.fail}`);
+    // Update last update timestamp (especially important for new keys)
+    if (isNewKey || success || !success) {
+      lastClientKeyUpdate = Date.now();
+    }
+
+    logDebug(`Client key stats updated: ${maskKey(lastSelectedKey)} - Success: ${keyStats.success}, Fail: ${keyStats.fail}${isNewKey ? ' (NEW KEY)' : ''}`);
   }
 }
 
@@ -411,7 +425,9 @@ export function getClientKeysStats() {
   // Aggregate endpoint stats across all keys
   const globalEndpointStats = new Map();
 
-  const keys = Array.from(clientKeysStats.entries()).map(([key, stats]) => {
+  const keys = clientKeysArray.map((entry, index) => {
+    const stats = entry.stats;
+
     // Aggregate endpoint stats
     stats.endpoints.forEach((endpointStats, endpoint) => {
       if (!globalEndpointStats.has(endpoint)) {
@@ -423,7 +439,8 @@ export function getClientKeysStats() {
     });
 
     return {
-      key: maskKey(key),
+      index, // Add index for balance query
+      key: maskKey(entry.key),
       success: stats.success,
       fail: stats.fail,
       total: stats.success + stats.fail,
@@ -453,4 +470,24 @@ export function getClientKeysStats() {
     deprecatedKeys: [],
     endpoints
   };
+}
+
+/**
+ * Get client key by index (for balance query)
+ * @param {number} index - Key index
+ * @returns {string|null} Original key or null if not found
+ */
+export function getClientKeyByIndex(index) {
+  if (authSource !== 'client' || index < 0 || index >= clientKeysArray.length) {
+    return null;
+  }
+  return clientKeysArray[index].key;
+}
+
+/**
+ * Get last client key update timestamp
+ * @returns {number|null} Timestamp or null if no updates
+ */
+export function getLastClientKeyUpdate() {
+  return lastClientKeyUpdate;
 }
