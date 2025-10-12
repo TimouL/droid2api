@@ -1180,6 +1180,7 @@ async function fetchUsageForKeyRaw(apiKey) {
       return { error: `HTTP ${resp.status}` };
     }
     const data = await resp.json();
+    logDebug('Balance API response data', data);
     const usage = data?.usage;
     const standard = usage?.standard;
     if (!standard) {
