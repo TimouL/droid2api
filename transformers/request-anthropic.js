@@ -68,10 +68,39 @@ export function transformToAnthropic(openaiRequest) {
               text: part.text
             });
           } else if (part.type === 'image_url') {
-            anthropicMsg.content.push({
-              type: 'image',
-              source: part.image_url
-            });
+            // Normalize image_url for Anthropic: produce source { type: 'url' | 'base64' }
+            const img = part.image_url;
+            let source = null;
+            if (typeof img === 'string') {
+              if (img.startsWith('data:')) {
+                // data:<media>;base64,<data>
+                const match = img.match(/^data:([^;]+);base64,(.+)$/);
+                if (match) {
+                  source = { type: 'base64', media_type: match[1], data: match[2] };
+                }
+              } else {
+                source = { type: 'url', url: img };
+              }
+            } else if (img && typeof img.url === 'string') {
+              const u = img.url;
+              if (u.startsWith('data:')) {
+                const match = u.match(/^data:([^;]+);base64,(.+)$/);
+                if (match) {
+                  source = { type: 'base64', media_type: match[1], data: match[2] };
+                }
+              } else {
+                source = { type: 'url', url: u };
+              }
+            } else if (img && img.data) {
+              const media = img.media_type || 'image/jpeg';
+              source = { type: 'base64', media_type: media, data: img.data };
+            }
+            if (source) {
+              anthropicMsg.content.push({
+                type: 'image',
+                source
+              });
+            }
           } else {
             anthropicMsg.content.push(part);
           }
