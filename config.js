@@ -82,3 +82,24 @@ export function getRemoveOn402() {
   // 默认值为true
   return cfg.remove_on_402 !== false;
 }
+
+export function isServerAuthEnabled() {
+  // 优先级：环境变量 > 配置文件
+  const envValue = process.env.ENABLE_SERVER_AUTH;
+  if (envValue !== undefined) {
+    // 环境变量存在时，解析其值
+    // 支持: true/1/yes/on -> true, false/0/no/off -> false
+    const normalized = envValue.toLowerCase().trim();
+    if (['true', '1', 'yes', 'on'].includes(normalized)) {
+      return true;
+    }
+    if (['false', '0', 'no', 'off'].includes(normalized)) {
+      return false;
+    }
+  }
+
+  // 回退到配置文件
+  const cfg = getConfig();
+  // 默认值为true(启用服务器认证)
+  return cfg.enable_server_auth !== false;
+}

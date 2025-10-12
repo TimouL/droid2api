@@ -80,9 +80,50 @@ npm install
 
 ## 快速开始
 
-### 0. 服务器密钥设置（首次访问必需）
+### 0. 服务器密钥设置（可选，推荐生产环境启用）
 
-**droid2api** 提供服务器级别的访问密钥保护，防止未授权访问：
+**droid2api** 提供服务器级别的访问密钥保护，防止未授权访问。可通过配置开关控制是否启用。
+
+#### 🔧 控制开关
+
+支持两种方式配置认证开关（**环境变量优先**）：
+
+**方式1：环境变量（推荐，云部署友好）**
+
+```bash
+# 启用认证（以下任一值都表示启用）
+export ENABLE_SERVER_AUTH=true    # 推荐
+export ENABLE_SERVER_AUTH=1
+export ENABLE_SERVER_AUTH=yes
+export ENABLE_SERVER_AUTH=on
+
+# 禁用认证（以下任一值都表示禁用）
+export ENABLE_SERVER_AUTH=false   # 推荐
+export ENABLE_SERVER_AUTH=0
+export ENABLE_SERVER_AUTH=no
+export ENABLE_SERVER_AUTH=off
+```
+
+**方式2：配置文件（回退选项）**
+
+在 `config.json` 中配置 `enable_server_auth` 字段：
+
+```json
+{
+  "enable_server_auth": true   // true=启用认证(默认), false=禁用认证
+}
+```
+
+**优先级说明**：
+- 🔝 **环境变量 `ENABLE_SERVER_AUTH`**（优先级最高）
+- 📄 **配置文件 `enable_server_auth`**（回退选项）
+- ⚙️ **默认值 `true`**（未配置时启用认证）
+
+**配置说明**：
+- ✅ `true`（默认）- 启用服务器认证保护，所有请求需要携带SERVER_AUTH_KEY
+- ❌ `false` - 禁用服务器认证，无需SERVER_AUTH_KEY即可访问（仅开发/内网环境推荐）
+
+---
 
 #### 方式1：环境变量配置（推荐用于Docker/云部署）
 
@@ -96,32 +137,50 @@ export SERVER_AUTH_KEY="your_secure_server_key_here"
 - ✅ 符合12-Factor应用原则
 - ✅ 环境变量存在时优先使用，忽略文件配置
 
-#### 方式2：Web界面设置（本地部署）
+#### 方式2：禁用认证（开发/内网环境）
 
-1. 首次启动服务器后访问 `http://localhost:3000/status`
-2. 在"Server Key Setup"区域输入自定义密钥
-3. 点击"Set Server Key"按钮完成设置
-4. 密钥将保存到 `server-key.json` 文件中
+如果不需要服务器访问保护，可以在 `config.json` 中禁用：
+
+```json
+{
+  "enable_server_auth": false
+}
+```
 
 **注意事项**：
-- ⚠️ 服务器密钥设置后，所有API请求都需要在请求头中携带密钥
-- ⚠️ 请求格式：`Authorization: Bearer <your_server_key>`
-- ⚠️ 环境变量 `SERVER_AUTH_KEY` 优先级最高，存在时无法通过Web界面修改
-- ⚠️ 妥善保管密钥，遗失后需手动删除 `server-key.json` 重新设置
+- ⚠️ **启用认证时（enable_server_auth: true）**：
+  - 必须设置 `SERVER_AUTH_KEY` 环境变量
+  - 所有API请求（包括/status）都需要携带密钥
+  - 请求格式：`Authorization: Bearer <your_server_key>`
+  - 环境变量 `SERVER_AUTH_KEY` 优先级最高
+
+- ⚠️ **禁用认证时（enable_server_auth: false）**：
+  - 无需设置 `SERVER_AUTH_KEY`
+  - 所有请求都可以直接访问
+  - 仅推荐在开发环境或内网部署时使用
 
 **Docker部署示例**：
 
 ```bash
+# 示例1：启用服务器认证（生产环境推荐）
 docker run -d \
   -p 3000:3000 \
   -e SERVER_AUTH_KEY="your_secure_key" \
   -e FACTORY_API_KEY="your_factory_key" \
   --name droid2api \
   droid2api
+
+# 示例2：禁用服务器认证（通过环境变量）
+docker run -d \
+  -p 3000:3000 \
+  -e ENABLE_SERVER_AUTH=false \
+  -e FACTORY_API_KEY="your_factory_key" \
+  --name droid2api \
+  droid2api
 ```
 
 ```yaml
-# docker-compose.yml
+# docker-compose.yml示例1 - 启用认证
 version: '3'
 services:
   droid2api:
@@ -129,20 +188,41 @@ services:
     ports:
       - "3000:3000"
     environment:
+      - ENABLE_SERVER_AUTH=true  # 启用认证（默认值，可省略）
       - SERVER_AUTH_KEY=your_secure_key
+      - FACTORY_API_KEY=your_factory_key
+
+# docker-compose.yml示例2 - 禁用认证
+version: '3'
+services:
+  droid2api:
+    image: droid2api
+    ports:
+      - "3000:3000"
+    environment:
+      - ENABLE_SERVER_AUTH=false  # 禁用认证
       - FACTORY_API_KEY=your_factory_key
 ```
 
 **客户端请求示例**：
 
 ```bash
-# 获取模型列表
+# 启用认证时 - 需要携带SERVER_AUTH_KEY
 curl http://localhost:3000/v1/models \
   -H "Authorization: Bearer your_secure_key"
 
-# 发送对话请求
 curl http://localhost:3000/v1/chat/completions \
   -H "Authorization: Bearer your_secure_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-opus-4-1-20250805",
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'
+
+# 禁用认证时 - 无需SERVER_AUTH_KEY
+curl http://localhost:3000/v1/models
+
+curl http://localhost:3000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "claude-opus-4-1-20250805",
@@ -334,7 +414,8 @@ docker run -d \
 
 Docker部署支持以下环境变量：
 
-- `SERVER_AUTH_KEY` - 服务器访问密钥（推荐设置，优先级最高）
+- `ENABLE_SERVER_AUTH` - 启用/禁用服务器认证（true/false，默认true）
+- `SERVER_AUTH_KEY` - 服务器访问密钥（启用认证时必需）
 - `FACTORY_API_KEY` - Factory API密钥（推荐设置）
 - `DROID_REFRESH_KEY` - 刷新令牌（可选，与FACTORY_API_KEY二选一）
 - `PORT` - 服务端口（默认3000）
@@ -448,9 +529,25 @@ curl http://localhost:3000/v1/chat/completions \
 
 ### 如何配置服务器密钥？
 
-droid2api提供两种服务器密钥配置方式：
+droid2api的服务器密钥系统提供灵活的配置方式：
 
-#### 1. 环境变量方式（推荐用于Docker/云部署）
+#### 1. 启用/禁用服务器认证
+
+在 `config.json` 中配置：
+
+```json
+{
+  "enable_server_auth": true   // true=启用, false=禁用
+}
+```
+
+**使用场景**：
+- ✅ `true`（默认）- 生产环境、公网部署、需要访问控制
+- ❌ `false` - 开发环境、内网部署、测试环境
+
+#### 2. 设置服务器密钥（启用认证时必需）
+
+**环境变量方式**（推荐）：
 
 ```bash
 # 设置环境变量
@@ -463,36 +560,30 @@ npm start
 **特点**：
 - 🐳 云原生部署友好
 - 🔒 环境变量优先级最高
-- 📁 不生成server-key.json文件
 - 🔄 容器重启后自动生效
 
-#### 2. Web界面方式（本地部署）
+#### 3. 重要变更说明
 
-1. 启动服务器（无需预先设置密钥）
-2. 访问 `http://localhost:3000/status`
-3. 在"Server Key Setup"区域设置密钥
-4. 密钥保存在 `server-key.json` 文件
+**⚠️ 安全增强**：启用认证后，**所有路径（包括/status）都需要验证SERVER_AUTH_KEY**
+
+```bash
+# 访问status页面也需要携带密钥
+curl http://localhost:3000/status \
+  -H "Authorization: Bearer your_secure_key"
+```
 
 **注意**：
-- ⚠️ 如果设置了环境变量`SERVER_AUTH_KEY`，Web界面将无法修改密钥
-- ⚠️ 所有API请求需要携带：`Authorization: Bearer <server_key>`
-- ⚠️ `/status`路径豁免认证检查，可随时访问
+- ⚠️ 启用认证时，必须设置`SERVER_AUTH_KEY`环境变量，否则服务器返回503错误
+- ⚠️ 所有API请求格式：`Authorization: Bearer <server_key>`
+- ⚠️ 禁用认证时，无需设置密钥，所有请求直接访问
 
 ### 如何重置服务器密钥？
 
-**环境变量方式**：
 ```bash
-# 直接修改环境变量
+# 修改环境变量
 export SERVER_AUTH_KEY="new_server_key"
-# 重启服务器
-npm start
-```
 
-**文件方式**：
-```bash
-# 删除密钥文件
-rm server-key.json
-# 重启服务器，访问/status重新设置
+# 重启服务器
 npm start
 ```
 

@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { logInfo, logError } from './logger.js';
+import { logInfo, logError, logDebug } from './logger.js';
+import { isServerAuthEnabled } from './config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -100,21 +101,21 @@ export function getKeySource() {
 }
 
 export function serverAuthMiddleware(req, res, next) {
-  // Allow status and its subpaths without key
-  const path = req.path || req.originalUrl || '';
-  if (path === '/status' || path.startsWith('/status/')) {
+  // Check if server authentication is enabled
+  if (!isServerAuthEnabled()) {
+    logDebug('Server authentication is disabled in config');
     return next();
   }
 
-  // If key is not set yet, block all other routes and instruct to visit /status
+  // If key is not set yet, block all routes (including /status) and instruct to set key
   if (!isServerKeySet()) {
     return res.status(503).json({
       error: 'Server key not set',
-      message: 'Visit /status to set the initial access key.'
+      message: 'Set SERVER_AUTH_KEY environment variable or disable server authentication in config.json (set "enable_server_auth": false)'
     });
   }
 
-  // Accept key via Authorization: Bearer <key>
+  // Verify key for all routes (including /status)
   const authHeader = req.headers['authorization'];
   let provided = null;
   if (typeof authHeader === 'string') {
