@@ -48,10 +48,23 @@ export function transformToOpenAI(openaiRequest) {
               text: part.text
             });
           } else if (part.type === 'image_url') {
-            inputMsg.content.push({
-              type: imageType,
-              image_url: part.image_url
-            });
+            // Normalize image_url: accept string URL, { url }, or { data, media_type } (base64)
+            const img = part.image_url;
+            let imageUrl = '';
+            if (typeof img === 'string') {
+              imageUrl = img;
+            } else if (img && typeof img.url === 'string') {
+              imageUrl = img.url;
+            } else if (img && img.data) {
+              const media = img.media_type || 'image/jpeg';
+              imageUrl = `data:${media};base64,${img.data}`;
+            }
+            if (imageUrl) {
+              inputMsg.content.push({
+                type: imageType,
+                image_url: imageUrl
+              });
+            }
           } else {
             // Pass through other types as-is
             inputMsg.content.push(part);
