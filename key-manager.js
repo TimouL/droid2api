@@ -199,14 +199,16 @@ class KeyManager {
   }
   
   /**
-   * 获取统计信息
+   * 获取统计信息（只返回实际使用过的key）
    */
   getStats() {
     // 分离活跃的key和废弃的key（保留原始索引以便在UI中定位）
     const indexedKeys = this.keys.map((k, idx) => ({ ...k, __index: idx }));
-    const activeKeys = indexedKeys.filter(k => !k.deprecated);
-    const deprecatedKeys = indexedKeys.filter(k => k.deprecated);
-    
+
+    // 只包含实际使用过的key（success + fail > 0）
+    const activeKeys = indexedKeys.filter(k => !k.deprecated && (k.success + k.fail) > 0);
+    const deprecatedKeys = indexedKeys.filter(k => k.deprecated && (k.success + k.fail) > 0);
+
     return {
       algorithm: this.algorithm,
       removeOn402: this.removeOn402,
@@ -215,7 +217,7 @@ class KeyManager {
         success: keyObj.success,
         fail: keyObj.fail,
         total: keyObj.success + keyObj.fail,
-        successRate: keyObj.success + keyObj.fail > 0 
+        successRate: keyObj.success + keyObj.fail > 0
           ? ((keyObj.success / (keyObj.success + keyObj.fail)) * 100).toFixed(2) + '%'
           : 'N/A',
         index: keyObj.__index,
@@ -226,7 +228,7 @@ class KeyManager {
         success: keyObj.success,
         fail: keyObj.fail,
         total: keyObj.success + keyObj.fail,
-        successRate: keyObj.success + keyObj.fail > 0 
+        successRate: keyObj.success + keyObj.fail > 0
           ? ((keyObj.success / (keyObj.success + keyObj.fail)) * 100).toFixed(2) + '%'
           : 'N/A',
         deprecatedAt: this.deprecatedKeys.find(dk => dk.key === keyObj.key)?.deprecatedAt || 'Unknown',
