@@ -80,9 +80,81 @@ npm install
 
 ## 快速开始
 
+### 0. 服务器密钥设置（首次访问必需）
+
+**droid2api** 提供服务器级别的访问密钥保护，防止未授权访问：
+
+#### 方式1：环境变量配置（推荐用于Docker/云部署）
+
+```bash
+export SERVER_AUTH_KEY="your_secure_server_key_here"
+```
+
+**优点**：
+- ✅ 云原生部署友好，无需持久化文件
+- ✅ 容器重启后密钥自动生效
+- ✅ 符合12-Factor应用原则
+- ✅ 环境变量存在时优先使用，忽略文件配置
+
+#### 方式2：Web界面设置（本地部署）
+
+1. 首次启动服务器后访问 `http://localhost:3000/status`
+2. 在"Server Key Setup"区域输入自定义密钥
+3. 点击"Set Server Key"按钮完成设置
+4. 密钥将保存到 `server-key.json` 文件中
+
+**注意事项**：
+- ⚠️ 服务器密钥设置后，所有API请求都需要在请求头中携带密钥
+- ⚠️ 请求格式：`Authorization: Bearer <your_server_key>`
+- ⚠️ 环境变量 `SERVER_AUTH_KEY` 优先级最高，存在时无法通过Web界面修改
+- ⚠️ 妥善保管密钥，遗失后需手动删除 `server-key.json` 重新设置
+
+**Docker部署示例**：
+
+```bash
+docker run -d \
+  -p 3000:3000 \
+  -e SERVER_AUTH_KEY="your_secure_key" \
+  -e FACTORY_API_KEY="your_factory_key" \
+  --name droid2api \
+  droid2api
+```
+
+```yaml
+# docker-compose.yml
+version: '3'
+services:
+  droid2api:
+    image: droid2api
+    ports:
+      - "3000:3000"
+    environment:
+      - SERVER_AUTH_KEY=your_secure_key
+      - FACTORY_API_KEY=your_factory_key
+```
+
+**客户端请求示例**：
+
+```bash
+# 获取模型列表
+curl http://localhost:3000/v1/models \
+  -H "Authorization: Bearer your_secure_key"
+
+# 发送对话请求
+curl http://localhost:3000/v1/chat/completions \
+  -H "Authorization: Bearer your_secure_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-opus-4-1-20250805",
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'
+```
+
+---
+
 ### 1. 配置认证（四种方式）
 
-**优先级：FACTORY_API_KEY/factory_keys.txt > refresh_token > 客户端authorization**
+**优先级：SERVER_AUTH_KEY > FACTORY_API_KEY/factory_keys.txt > refresh_token > 客户端authorization**
 
 ```bash
 # 方式1a：单个固定API密钥（最高优先级）
@@ -262,7 +334,9 @@ docker run -d \
 
 Docker部署支持以下环境变量：
 
-- `DROID_REFRESH_KEY` - 刷新令牌（必需）
+- `SERVER_AUTH_KEY` - 服务器访问密钥（推荐设置，优先级最高）
+- `FACTORY_API_KEY` - Factory API密钥（推荐设置）
+- `DROID_REFRESH_KEY` - 刷新令牌（可选，与FACTORY_API_KEY二选一）
 - `PORT` - 服务端口（默认3000）
 - `NODE_ENV` - 运行环境（production/development）
 
@@ -371,6 +445,56 @@ curl http://localhost:3000/v1/chat/completions \
 - `temperature` - 温度参数（0-1）
 
 ## 常见问题
+
+### 如何配置服务器密钥？
+
+droid2api提供两种服务器密钥配置方式：
+
+#### 1. 环境变量方式（推荐用于Docker/云部署）
+
+```bash
+# 设置环境变量
+export SERVER_AUTH_KEY="your_secure_server_key"
+
+# 启动服务器
+npm start
+```
+
+**特点**：
+- 🐳 云原生部署友好
+- 🔒 环境变量优先级最高
+- 📁 不生成server-key.json文件
+- 🔄 容器重启后自动生效
+
+#### 2. Web界面方式（本地部署）
+
+1. 启动服务器（无需预先设置密钥）
+2. 访问 `http://localhost:3000/status`
+3. 在"Server Key Setup"区域设置密钥
+4. 密钥保存在 `server-key.json` 文件
+
+**注意**：
+- ⚠️ 如果设置了环境变量`SERVER_AUTH_KEY`，Web界面将无法修改密钥
+- ⚠️ 所有API请求需要携带：`Authorization: Bearer <server_key>`
+- ⚠️ `/status`路径豁免认证检查，可随时访问
+
+### 如何重置服务器密钥？
+
+**环境变量方式**：
+```bash
+# 直接修改环境变量
+export SERVER_AUTH_KEY="new_server_key"
+# 重启服务器
+npm start
+```
+
+**文件方式**：
+```bash
+# 删除密钥文件
+rm server-key.json
+# 重启服务器，访问/status重新设置
+npm start
+```
 
 ### 如何配置多个API Key？
 
