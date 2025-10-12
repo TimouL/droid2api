@@ -15,6 +15,9 @@ let authFilePath = null;
 let factoryApiKey = null; // From FACTORY_API_KEY environment variable (deprecated for multi-key)
 let lastSelectedKey = null; // Track last selected key for result recording
 
+// Client-provided keys statistics (for client authorization mode)
+let clientKeysStats = new Map(); // key -> { success, fail, endpoints: Map<endpoint, {success, fail}> }
+
 const REFRESH_URL = 'https://api.workos.com/user_management/authenticate';
 const REFRESH_INTERVAL_HOURS = 6; // Refresh every 6 hours
 const TOKEN_VALID_HOURS = 8; // Token valid for 8 hours
@@ -328,9 +331,14 @@ export async function getApiKey(clientAuthorization = null) {
   // Priority 3: Client authorization header
   if (clientAuthorization) {
     logDebug('Using client authorization header');
+    // Extract the key for tracking (remove "Bearer " prefix)
+    const keyMatch = clientAuthorization.match(/^Bearer\s+(.+)$/i);
+    if (keyMatch) {
+      lastSelectedKey = keyMatch[1]; // Track for result recording
+    }
     return clientAuthorization;
   }
-  
+
   // No authorization available
   throw new Error('No authorization available. Please configure FACTORY_API_KEY, refresh token, or provide client authorization.');
 }
@@ -347,5 +355,102 @@ export function recordRequestResult(endpoint, success, statusCode) {
     if (keyManager) {
       keyManager.recordResult(lastSelectedKey, endpoint, success, statusCode);
     }
+  } else if (authSource === 'client' && lastSelectedKey) {
+    // Record statistics for client-provided keys
+    if (!clientKeysStats.has(lastSelectedKey)) {
+      clientKeysStats.set(lastSelectedKey, {
+        success: 0,
+        fail: 0,
+        endpoints: new Map()
+      });
+    }
+
+    const keyStats = clientKeysStats.get(lastSelectedKey);
+
+    // Update key-level stats
+    if (success) {
+      keyStats.success++;
+    } else {
+      keyStats.fail++;
+    }
+
+    // Update endpoint-level stats
+    if (!keyStats.endpoints.has(endpoint)) {
+      keyStats.endpoints.set(endpoint, { success: 0, fail: 0 });
+    }
+    const endpointStats = keyStats.endpoints.get(endpoint);
+    if (success) {
+      endpointStats.success++;
+    } else {
+      endpointStats.fail++;
+    }
+
+    logDebug(`Client key stats updated: ${maskKey(lastSelectedKey)} - Success: ${keyStats.success}, Fail: ${keyStats.fail}`);
   }
+}
+
+/**
+ * Mask key for display (show first 6 and last 6 characters)
+ */
+function maskKey(key) {
+  if (!key || key.length <= 12) {
+    return '******';
+  }
+  return `${key.substring(0, 6)}******${key.substring(key.length - 6)}`;
+}
+
+/**
+ * Get client keys statistics (for status page)
+ * @returns {object} Statistics object compatible with KeyManager.getStats()
+ */
+export function getClientKeysStats() {
+  if (authSource !== 'client' || clientKeysStats.size === 0) {
+    return null;
+  }
+
+  // Aggregate endpoint stats across all keys
+  const globalEndpointStats = new Map();
+
+  const keys = Array.from(clientKeysStats.entries()).map(([key, stats]) => {
+    // Aggregate endpoint stats
+    stats.endpoints.forEach((endpointStats, endpoint) => {
+      if (!globalEndpointStats.has(endpoint)) {
+        globalEndpointStats.set(endpoint, { success: 0, fail: 0 });
+      }
+      const globalStats = globalEndpointStats.get(endpoint);
+      globalStats.success += endpointStats.success;
+      globalStats.fail += endpointStats.fail;
+    });
+
+    return {
+      key: maskKey(key),
+      success: stats.success,
+      fail: stats.fail,
+      total: stats.success + stats.fail,
+      successRate: stats.success + stats.fail > 0
+        ? ((stats.success / (stats.success + stats.fail)) * 100).toFixed(2) + '%'
+        : 'N/A',
+      depleted: false
+    };
+  });
+
+  const endpoints = Array.from(globalEndpointStats.entries())
+    .filter(([_, stats]) => stats.success > 0 || stats.fail > 0)
+    .map(([endpoint, stats]) => ({
+      endpoint,
+      success: stats.success,
+      fail: stats.fail,
+      total: stats.success + stats.fail,
+      successRate: stats.success + stats.fail > 0
+        ? ((stats.success / (stats.success + stats.fail)) * 100).toFixed(2) + '%'
+        : 'N/A'
+    }));
+
+  return {
+    algorithm: 'client',
+    removeOn402: false,
+    keys,
+    deprecatedKeys: [],
+    endpoints
+  };
 }

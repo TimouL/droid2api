@@ -7,7 +7,7 @@ import { transformToOpenAI, getOpenAIHeaders } from './transformers/request-open
 import { transformToCommon, getCommonHeaders } from './transformers/request-common.js';
 import { AnthropicResponseTransformer } from './transformers/response-anthropic.js';
 import { OpenAIResponseTransformer } from './transformers/response-openai.js';
-import { getApiKey, recordRequestResult } from './auth.js';
+import { getApiKey, recordRequestResult, getClientKeysStats } from './auth.js';
 import { getKeyManager } from './key-manager.js';
 import { isServerKeySet, setServerKey } from './server-auth.js';
 
@@ -569,9 +569,10 @@ router.get('/status', (req, res) => {
     }
 
     const keyManager = getKeyManager();
-    
-    if (!keyManager) {
-      // 如果没有使用KeyManager（例如使用refresh token或client auth）
+    const clientStats = getClientKeysStats();
+
+    if (!keyManager && !clientStats) {
+      // 如果既没有使用KeyManager也没有客户端key统计
       return res.send(`
         <!DOCTYPE html>
         <html>
@@ -602,15 +603,15 @@ router.get('/status', (req, res) => {
         <body>
           <h1>droid2api v2.0.0 Status</h1>
           <div class="info">
-            <p>Multi-key statistics are not available.</p>
-            <p>This feature is only enabled when using FACTORY_API_KEY or factory_keys.txt with multiple keys.</p>
+            <p>No key statistics available yet.</p>
+            <p>Statistics will appear after API keys are used for requests.</p>
           </div>
         </body>
         </html>
       `);
     }
-    
-    const stats = keyManager.getStats();
+
+    const stats = keyManager ? keyManager.getStats() : clientStats;
     
     // 生成HTML页面
     const html = `
