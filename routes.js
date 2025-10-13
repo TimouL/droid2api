@@ -622,6 +622,18 @@ router.get('/status', (req, res) => {
               color: #333;
               text-align: center;
             }
+            .section {
+              background: white;
+              margin: 20px 0;
+              padding: 20px;
+              border-radius: 8px;
+              box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            h2 {
+              color: #555;
+              border-bottom: 2px solid #4CAF50;
+              padding-bottom: 10px;
+            }
             .info {
               background: white;
               padding: 20px;
@@ -629,13 +641,376 @@ router.get('/status', (req, res) => {
               box-shadow: 0 2px 4px rgba(0,0,0,0.1);
               text-align: center;
             }
+            .btn {
+              background: #4CAF50;
+              color: #fff;
+              border: none;
+              padding: 6px 10px;
+              border-radius: 6px;
+              cursor: pointer;
+            }
+            .btn:hover { filter: brightness(0.95); }
+            .number {
+              text-align: right;
+              font-variant-numeric: tabular-nums;
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Microsoft YaHei', sans-serif;
+              letter-spacing: normal;
+            }
+            .date { color: #555; font-family: monospace; }
+            .nowrap { white-space: nowrap; }
+            code {
+              background: #f1f3f5;
+              padding: 6px 10px;
+              border-radius: 6px;
+              display: inline-block;
+            }
+            tr.depleted td { opacity: 0.7; background: #f8f9fa; }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 20px;
+            }
+            th {
+              background-color: #4CAF50;
+              color: white;
+              padding: 12px;
+              text-align: left;
+              white-space: nowrap;
+            }
+            td {
+              padding: 10px;
+              border-bottom: 1px solid #ddd;
+            }
+            tr:hover {
+              background-color: #f5f5f5;
+            }
           </style>
+          <script>
+            function formatNumber(num){
+              if(num===undefined||num===null||Number.isNaN(num)) return '0';
+              try{ return new Intl.NumberFormat('en-US').format(num);}catch(e){return String(num)}
+            }
+            function formatPercentage(ratio){
+              if(ratio===undefined||ratio===null||Number.isNaN(ratio)) return '0.00%';
+              try{ return (ratio*100).toFixed(2)+'%'; }catch(e){ return '0.00%'; }
+            }
+
+            // 全局变量：存储所有查询结果
+            let allManualResults = [];
+            let currentPage = 1;
+            const pageSize = 20;
+            let currentFilter = 'all'; // all, available, depleted
+
+            // 手动输入 Key 查询功能（支持自动分批）
+            async function queryManualKeys() {
+              const textarea = document.getElementById('manual-keys');
+              const keys = textarea.value
+                .split('\\n')
+                .map(k => k.trim())
+                .filter(k => k.length > 0);
+
+              if (keys.length === 0) {
+                alert('请输入至少一个 API Key');
+                return;
+              }
+
+              // 显示加载状态
+              const summaryDiv = document.getElementById('manual-summary');
+              const tableDiv = document.getElementById('manual-keys-table');
+              const tbody = document.getElementById('manual-keys-tbody');
+              const progressDiv = document.getElementById('query-progress');
+
+              summaryDiv.style.display = 'block';
+              tableDiv.style.display = 'block';
+              progressDiv.style.display = 'block';
+              tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">查询中...</td></tr>';
+
+              try {
+                allManualResults = [];
+                const batchSize = 50;
+                const totalBatches = Math.ceil(keys.length / batchSize);
+
+                // 分批查询
+                for (let i = 0; i < totalBatches; i++) {
+                  const start = i * batchSize;
+                  const end = Math.min(start + batchSize, keys.length);
+                  const batchKeys = keys.slice(start, end);
+
+                  // 更新进度
+                  const progress = document.getElementById('progress-text');
+                  progress.textContent = \`正在查询第 \${i + 1}/\${totalBatches} 批 (\${start + 1}-\${end}/\${keys.length} 个 keys)...\`;
+
+                  const response = await fetch('/status/query-keys', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ keys: batchKeys })
+                  });
+
+                  const data = await response.json();
+                  if (!response.ok || data.error) {
+                    throw new Error(data.error || 'Query failed');
+                  }
+
+                  // 合并结果
+                  data.results.forEach((result, idx) => {
+                    const originalIndex = start + idx;
+                    allManualResults.push({
+                      key: keys[originalIndex],
+                      ...result
+                    });
+                  });
+
+                  // 批次间延迟（避免请求过快）
+                  if (i < totalBatches - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                  }
+                }
+
+                // 隐藏进度提示
+                progressDiv.style.display = 'none';
+
+                // 计算汇总数据
+                let totalAllowance = 0;
+                let totalUsed = 0;
+
+                allManualResults.forEach(result => {
+                  if (!result.error) {
+                    totalAllowance += Number(result.totalAllowance || 0);
+                    totalUsed += Number(result.used || 0);
+                  }
+                });
+
+                const totalRemaining = Math.max(0, totalAllowance - totalUsed);
+                const usagePercent = totalAllowance > 0 ? (totalUsed / totalAllowance) : 0;
+
+                // 更新汇总数据显示
+                document.getElementById('manual-total').textContent = formatNumber(totalAllowance);
+                document.getElementById('manual-used').textContent = formatNumber(totalUsed);
+                document.getElementById('manual-remaining').textContent = formatNumber(totalRemaining);
+                document.getElementById('manual-usage-percent').textContent = formatPercentage(usagePercent);
+
+                // 重置分页和筛选
+                currentPage = 1;
+                currentFilter = 'all';
+                document.getElementById('status-filter').value = 'all';
+
+                // 渲染列表
+                renderManualKeysList();
+
+              } catch (error) {
+                progressDiv.style.display = 'none';
+                tbody.innerHTML = \`<tr><td colspan="6" style="text-align: center; color: #f44336;">查询失败: \${error.message}</td></tr>\`;
+              }
+            }
+
+            // 渲染列表（支持分页和筛选）
+            function renderManualKeysList() {
+              const tbody = document.getElementById('manual-keys-tbody');
+              const paginationDiv = document.getElementById('pagination-controls');
+
+              // 筛选数据
+              let filteredResults = allManualResults;
+              if (currentFilter === 'available') {
+                filteredResults = allManualResults.filter(r => {
+                  if (r.error) return false;
+                  const remaining = Math.max(0, Number(r.totalAllowance || 0) - Number(r.used || 0));
+                  return remaining > 0;
+                });
+              } else if (currentFilter === 'depleted') {
+                filteredResults = allManualResults.filter(r => {
+                  if (r.error) return true;
+                  const remaining = Math.max(0, Number(r.totalAllowance || 0) - Number(r.used || 0));
+                  return remaining <= 0;
+                });
+              }
+
+              const totalPages = Math.ceil(filteredResults.length / pageSize);
+              const start = (currentPage - 1) * pageSize;
+              const end = Math.min(start + pageSize, filteredResults.length);
+              const pageResults = filteredResults.slice(start, end);
+
+              // 渲染表格
+              if (pageResults.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #888;">没有符合条件的数据</td></tr>';
+                paginationDiv.innerHTML = '';
+                return;
+              }
+
+              tbody.innerHTML = pageResults.map((result) => {
+                const maskedKey = result.key.substring(0, 12) + '...' + result.key.substring(result.key.length - 4);
+
+                if (result.error) {
+                  return \`
+                    <tr>
+                      <td class="nowrap"><code>\${maskedKey}</code></td>
+                      <td colspan="5" style="color: #f44336;">错误: \${result.error}</td>
+                    </tr>
+                  \`;
+                }
+
+                const total = Number(result.totalAllowance || 0);
+                const used = Number(result.used || 0);
+                const remaining = Math.max(0, total - used);
+                const usageRatio = total > 0 ? used / total : 0;
+                const startDate = result.startDate ? new Date(result.startDate).toLocaleString() : '—';
+                const endDate = result.endDate ? new Date(result.endDate).toLocaleString() : '—';
+                const status = remaining > 0 ? '<span style="color: #4CAF50;">✓ 可用</span>' : '<span style="color: #f44336;">✗ 已用尽</span>';
+
+                return \`
+                  <tr class="\${remaining <= 0 ? 'depleted' : ''}">
+                    <td class="nowrap"><code>\${maskedKey}</code></td>
+                    <td class="number">\${formatPercentage(usageRatio)}</td>
+                    <td class="number">\${formatNumber(remaining)} / \${formatNumber(total)}</td>
+                    <td class="date">\${startDate}</td>
+                    <td class="date">\${endDate}</td>
+                    <td class="nowrap">\${status}</td>
+                  </tr>
+                \`;
+              }).join('');
+
+              // 渲染分页控件
+              renderPagination(totalPages, filteredResults.length);
+            }
+
+            // 渲染分页控件
+            function renderPagination(totalPages, totalItems) {
+              const paginationDiv = document.getElementById('pagination-controls');
+
+              if (totalPages <= 1) {
+                paginationDiv.innerHTML = \`<div style="color: #888; font-size: 14px;">共 \${totalItems} 条记录</div>\`;
+                return;
+              }
+
+              let html = '<div style="display: flex; align-items: center; gap: 10px; justify-content: center; margin-top: 15px;">';
+
+              // 上一页
+              if (currentPage > 1) {
+                html += \`<button class="btn" onclick="changePage(\${currentPage - 1})" style="padding: 5px 10px;">上一页</button>\`;
+              } else {
+                html += \`<button class="btn" disabled style="padding: 5px 10px; opacity: 0.5; cursor: not-allowed;">上一页</button>\`;
+              }
+
+              // 页码
+              html += \`<span style="color: #555;">第 \${currentPage}/\${totalPages} 页 (共 \${totalItems} 条)</span>\`;
+
+              // 下一页
+              if (currentPage < totalPages) {
+                html += \`<button class="btn" onclick="changePage(\${currentPage + 1})" style="padding: 5px 10px;">下一页</button>\`;
+              } else {
+                html += \`<button class="btn" disabled style="padding: 5px 10px; opacity: 0.5; cursor: not-allowed;">下一页</button>\`;
+              }
+
+              html += '</div>';
+              paginationDiv.innerHTML = html;
+            }
+
+            // 切换页码
+            function changePage(page) {
+              currentPage = page;
+              renderManualKeysList();
+            }
+
+            // 切换筛选
+            function changeFilter(filter) {
+              currentFilter = filter;
+              currentPage = 1;
+              renderManualKeysList();
+            }
+
+            function clearManualKeys() {
+              const textarea = document.getElementById('manual-keys');
+              const summaryDiv = document.getElementById('manual-summary');
+              const tableDiv = document.getElementById('manual-keys-table');
+              const progressDiv = document.getElementById('query-progress');
+
+              textarea.value = '';
+              summaryDiv.style.display = 'none';
+              tableDiv.style.display = 'none';
+              progressDiv.style.display = 'none';
+
+              // 重置全局变量
+              allManualResults = [];
+              currentPage = 1;
+              currentFilter = 'all';
+            }
+          </script>
         </head>
         <body>
           <h1>droid2api v2.0.0 Status</h1>
           <div class="info">
             <p>No key statistics available yet.</p>
             <p>Statistics will appear after API keys are used for requests.</p>
+          </div>
+
+          <!-- 手动输入 Key 查询区域 -->
+          <div class="section">
+            <h2>官方key批量查询</h2>
+            <div style="margin-bottom: 20px;">
+              <label for="manual-keys" style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">
+                批量输入 API Keys（一行一个）:
+              </label>
+              <textarea id="manual-keys" rows="6" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-family: monospace; font-size: 14px;" placeholder="sk-ant-api03-xxxxx&#10;sk-ant-api03-yyyyy&#10;sk-ant-api03-zzzzz"></textarea>
+              <button class="btn" style="margin-top: 10px;" onclick="queryManualKeys()">查询 Keys 状态</button>
+              <button class="btn" style="margin-top: 10px; background: #f44336;" onclick="clearManualKeys()">清空输入</button>
+            </div>
+
+            <!-- 查询进度提示 -->
+            <div id="query-progress" style="display: none; margin-top: 15px; padding: 12px; background: #e3f2fd; border-left: 4px solid #2196F3; border-radius: 4px;">
+              <span id="progress-text" style="color: #1976D2; font-weight: 500;">正在查询...</span>
+            </div>
+
+            <!-- 手动输入 Key 汇总数据 -->
+            <div id="manual-summary" style="display: none; margin-top: 20px;">
+              <h3 style="color: #555; border-bottom: 2px solid #2196F3; padding-bottom: 8px;">手动输入 Key 汇总</h3>
+              <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-top: 15px;">
+                <div class="info" style="text-align: center;">
+                  <div style="font-size: 12px; color: #888; margin-bottom: 5px;">总计额度 (Total Allowance)</div>
+                  <div id="manual-total" class="number" style="font-size: 24px; font-weight: bold; color: #4CAF50;">0</div>
+                </div>
+                <div class="info" style="text-align: center;">
+                  <div style="font-size: 12px; color: #888; margin-bottom: 5px;">已使用 (Total Used)</div>
+                  <div id="manual-used" class="number" style="font-size: 24px; font-weight: bold; color: #FF9800;">0</div>
+                </div>
+                <div class="info" style="text-align: center;">
+                  <div style="font-size: 12px; color: #888; margin-bottom: 5px;">剩余额度 (Remaining)</div>
+                  <div id="manual-remaining" class="number" style="font-size: 24px; font-weight: bold; color: #2196F3;">0</div>
+                </div>
+                <div class="info" style="text-align: center;">
+                  <div style="font-size: 12px; color: #888; margin-bottom: 5px;">使用百分比 (Usage %)</div>
+                  <div id="manual-usage-percent" style="font-size: 24px; font-weight: bold; color: #9C27B0;">0.00%</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 手动输入 Key 详细列表 -->
+            <div id="manual-keys-table" style="display: none; margin-top: 20px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h3 style="color: #555; border-bottom: 2px solid #2196F3; padding-bottom: 8px; margin: 0;">手动输入 Key 详细信息</h3>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <label for="status-filter" style="color: #555; font-weight: 500;">状态筛选：</label>
+                  <select id="status-filter" onchange="changeFilter(this.value)" style="padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
+                    <option value="all">全部</option>
+                    <option value="available">可用</option>
+                    <option value="depleted">已用尽/错误</option>
+                  </select>
+                </div>
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th class="nowrap">Key</th>
+                    <th class="number">Usage %</th>
+                    <th class="number">Balance (Remaining / Total)</th>
+                    <th class="nowrap">Start</th>
+                    <th class="nowrap">End</th>
+                    <th class="nowrap">Status</th>
+                  </tr>
+                </thead>
+                <tbody id="manual-keys-tbody">
+                </tbody>
+              </table>
+              <div id="pagination-controls"></div>
+            </div>
           </div>
         </body>
         </html>
