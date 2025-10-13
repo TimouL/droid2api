@@ -1959,17 +1959,35 @@ async function fetchUsageForKeyRaw(apiKey) {
     if (!standard) {
       return { error: 'Invalid API response structure' };
     }
+
+    // 详细日志：检查日期字段
+    logDebug('Usage object:', usage);
+    logDebug('Available keys in usage:', usage ? Object.keys(usage) : 'null');
+    logDebug('startDate from usage:', usage?.startDate);
+    logDebug('endDate from usage:', usage?.endDate);
+    logDebug('startDate from standard:', standard?.startDate);
+    logDebug('endDate from standard:', standard?.endDate);
+
     const totalAllowance = Number(standard.totalAllowance || 0);
     const used = Number(standard.orgTotalTokensUsed || 0);
     const usedRatio = typeof standard.usedRatio === 'number' ? standard.usedRatio : (totalAllowance > 0 ? used / totalAllowance : 0);
-    const startDate = usage?.startDate ? new Date(usage.startDate).toISOString() : null;
-    const endDate = usage?.endDate ? new Date(usage.endDate).toISOString() : null;
+
+    // 尝试从多个可能的位置获取日期
+    const startDate = usage?.startDate || standard?.startDate || usage?.start_date || standard?.start_date || null;
+    const endDate = usage?.endDate || standard?.endDate || usage?.end_date || standard?.end_date || null;
+
+    logDebug('Final startDate:', startDate);
+    logDebug('Final endDate:', endDate);
+
+    // 格式化日期为 ISO 字符串
+    const formattedStartDate = startDate ? new Date(startDate).toISOString() : null;
+    const formattedEndDate = endDate ? new Date(endDate).toISOString() : null;
     return {
       totalAllowance,
       used,
       usedRatio,
-      startDate,
-      endDate
+      startDate: formattedStartDate,
+      endDate: formattedEndDate
     };
   } catch (e) {
     return { error: 'Failed to fetch' };
