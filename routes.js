@@ -772,6 +772,7 @@ router.get('/status', (req, res) => {
                 // 计算汇总数据
                 let totalAllowance = 0;
                 let totalUsed = 0;
+                const totalKeyCount = allManualResults.length;
 
                 allManualResults.forEach(result => {
                   if (!result.error) {
@@ -784,6 +785,7 @@ router.get('/status', (req, res) => {
                 const usagePercent = totalAllowance > 0 ? (totalUsed / totalAllowance) : 0;
 
                 // 更新汇总数据显示
+                document.getElementById('manual-key-count').textContent = formatNumber(totalKeyCount);
                 document.getElementById('manual-total').textContent = formatNumber(totalAllowance);
                 document.getElementById('manual-used').textContent = formatNumber(totalUsed);
                 document.getElementById('manual-remaining').textContent = formatNumber(totalRemaining);
@@ -961,8 +963,12 @@ router.get('/status', (req, res) => {
 
             <!-- 手动输入 Key 汇总数据 -->
             <div id="manual-summary" style="display: none; margin-top: 20px;">
-              <h3 style="color: #555; border-bottom: 2px solid #2196F3; padding-bottom: 8px;">手动输入 Key 汇总</h3>
-              <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-top: 15px;">
+              <h3 style="color: #555; border-bottom: 2px solid #2196F3; padding-bottom: 8px;">汇总</h3>
+              <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; margin-top: 15px;">
+                <div class="info" style="text-align: center;">
+                  <div style="font-size: 12px; color: #888; margin-bottom: 5px;">Key 总数 (Total Keys)</div>
+                  <div id="manual-key-count" class="number" style="font-size: 24px; font-weight: bold; color: #673AB7;">0</div>
+                </div>
                 <div class="info" style="text-align: center;">
                   <div style="font-size: 12px; color: #888; margin-bottom: 5px;">总计额度 (Total Allowance)</div>
                   <div id="manual-total" class="number" style="font-size: 24px; font-weight: bold; color: #4CAF50;">0</div>
@@ -985,7 +991,7 @@ router.get('/status', (req, res) => {
             <!-- 手动输入 Key 详细列表 -->
             <div id="manual-keys-table" style="display: none; margin-top: 20px;">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <h3 style="color: #555; border-bottom: 2px solid #2196F3; padding-bottom: 8px; margin: 0;">手动输入 Key 详细信息</h3>
+                <h3 style="color: #555; border-bottom: 2px solid #2196F3; padding-bottom: 8px; margin: 0;">详细信息</h3>
                 <div style="display: flex; align-items: center; gap: 10px;">
                   <label for="status-filter" style="color: #555; font-weight: 500;">状态筛选：</label>
                   <select id="status-filter" onchange="changeFilter(this.value)" style="padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
@@ -1552,6 +1558,7 @@ router.get('/status', (req, res) => {
                 // 计算汇总数据
                 let totalAllowance = 0;
                 let totalUsed = 0;
+                const totalKeyCount = allManualResults.length;
 
                 allManualResults.forEach(result => {
                   if (!result.error) {
@@ -1564,6 +1571,7 @@ router.get('/status', (req, res) => {
                 const usagePercent = totalAllowance > 0 ? (totalUsed / totalAllowance) : 0;
 
                 // 更新汇总数据显示
+                document.getElementById('manual-key-count').textContent = formatNumber(totalKeyCount);
                 document.getElementById('manual-total').textContent = formatNumber(totalAllowance);
                 document.getElementById('manual-used').textContent = formatNumber(totalUsed);
                 document.getElementById('manual-remaining').textContent = formatNumber(totalRemaining);
@@ -1777,7 +1785,11 @@ router.get('/status', (req, res) => {
           <!-- 手动输入 Key 汇总数据 -->
           <div id="manual-summary" style="display: none; margin-top: 20px;">
             <h3 style="color: #555; border-bottom: 2px solid #2196F3; padding-bottom: 8px;">手动输入 Key 汇总</h3>
-            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-top: 15px;">
+            <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; margin-top: 15px;">
+              <div class="info" style="text-align: center;">
+                <div style="font-size: 12px; color: #888; margin-bottom: 5px;">Key 总数 (Total Keys)</div>
+                <div id="manual-key-count" class="number" style="font-size: 24px; font-weight: bold; color: #673AB7;">0</div>
+              </div>
               <div class="info" style="text-align: center;">
                 <div style="font-size: 12px; color: #888; margin-bottom: 5px;">总计额度 (Total Allowance)</div>
                 <div id="manual-total" class="number" style="font-size: 24px; font-weight: bold; color: #4CAF50;">0</div>
