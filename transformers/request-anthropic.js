@@ -1,5 +1,5 @@
 import { logDebug } from '../logger.js';
-import { getSystemPrompt, getModelReasoning, getUserAgent } from '../config.js';
+import { getSystemPrompt, getSystemPromptMode, getModelReasoning, getUserAgent } from '../config.js';
 
 export function transformToAnthropic(openaiRequest) {
   logDebug('Transforming OpenAI request to Anthropic format');
@@ -82,19 +82,40 @@ export function transformToAnthropic(openaiRequest) {
     }
   }
 
-  // Add system parameter with system prompt prepended
+  // Add system parameter based on system_prompt_mode
   const systemPrompt = getSystemPrompt();
+  const systemPromptMode = getSystemPromptMode();
+
   if (systemPrompt || systemContent.length > 0) {
     anthropicRequest.system = [];
-    // Prepend system prompt as first element if it exists
-    if (systemPrompt) {
+
+    if (systemPromptMode === 'replace' && systemPrompt) {
+      // Replace: 只使用配置的系统提示词，忽略客户端提供的
       anthropicRequest.system.push({
         type: 'text',
         text: systemPrompt
       });
+    } else if (systemPromptMode === 'prepend' && systemPrompt) {
+      // Prepend: 配置提示词在前，客户端提示词在后
+      anthropicRequest.system.push({
+        type: 'text',
+        text: systemPrompt
+      });
+      anthropicRequest.system.push(...systemContent);
+    } else if (systemPromptMode === 'append' && systemPrompt) {
+      // Append: 客户端提示词在前，配置提示词在后
+      anthropicRequest.system.push(...systemContent);
+      anthropicRequest.system.push({
+        type: 'text',
+        text: systemPrompt
+      });
+    } else if (systemPromptMode === 'off') {
+      // Off: 只使用客户端提供的系统提示词
+      anthropicRequest.system.push(...systemContent);
+    } else {
+      // 默认行为或无效配置：只使用客户端提供的
+      anthropicRequest.system.push(...systemContent);
     }
-    // Add user-provided system content
-    anthropicRequest.system.push(...systemContent);
   }
 
   // Transform tools if present

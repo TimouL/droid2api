@@ -1,5 +1,5 @@
 import { logDebug } from '../logger.js';
-import { getSystemPrompt, getModelReasoning, getUserAgent } from '../config.js';
+import { getSystemPrompt, getSystemPromptMode, getModelReasoning, getUserAgent } from '../config.js';
 
 export function transformToOpenAI(openaiRequest) {
   logDebug('Transforming OpenAI request to target OpenAI format');
@@ -71,12 +71,13 @@ export function transformToOpenAI(openaiRequest) {
     }));
   }
 
-  // Extract system message as instructions and prepend system prompt
+  // Extract system message and apply based on system_prompt_mode
   const systemPrompt = getSystemPrompt();
+  const systemPromptMode = getSystemPromptMode();
   const systemMessage = openaiRequest.messages?.find(m => m.role === 'system');
-  
+
+  let userInstructions = '';
   if (systemMessage) {
-    let userInstructions = '';
     if (typeof systemMessage.content === 'string') {
       userInstructions = systemMessage.content;
     } else if (Array.isArray(systemMessage.content)) {
@@ -85,11 +86,30 @@ export function transformToOpenAI(openaiRequest) {
         .map(p => p.text)
         .join('\n');
     }
-    targetRequest.instructions = systemPrompt + userInstructions;
+    // 从 input 中移除 system 消息
     targetRequest.input = targetRequest.input.filter(m => m.role !== 'system');
-  } else if (systemPrompt) {
-    // If no user-provided system message, just add the system prompt
+  }
+
+  // 根据模式处理 instructions
+  if (systemPromptMode === 'replace' && systemPrompt) {
+    // Replace: 只使用配置的系统提示词
     targetRequest.instructions = systemPrompt;
+  } else if (systemPromptMode === 'prepend' && systemPrompt) {
+    // Prepend: 配置提示词 + 客户端提示词
+    targetRequest.instructions = systemPrompt + userInstructions;
+  } else if (systemPromptMode === 'append' && systemPrompt) {
+    // Append: 客户端提示词 + 配置提示词
+    targetRequest.instructions = userInstructions + systemPrompt;
+  } else if (systemPromptMode === 'off') {
+    // Off: 只使用客户端提示词
+    if (userInstructions) {
+      targetRequest.instructions = userInstructions;
+    }
+  } else {
+    // 默认或无效配置：只使用客户端提示词
+    if (userInstructions) {
+      targetRequest.instructions = userInstructions;
+    }
   }
 
   // Handle reasoning field based on model configuration

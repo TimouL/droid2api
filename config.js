@@ -50,6 +50,16 @@ export function getSystemPrompt() {
   return cfg.system_prompt || '';
 }
 
+export function getSystemPromptMode() {
+  const cfg = getConfig();
+  const mode = cfg.system_prompt_mode || 'replace';
+  // 验证配置值
+  if (!['replace', 'prepend', 'append', 'off'].includes(mode)) {
+    return 'replace'; // 默认值
+  }
+  return mode;
+}
+
 export function getModelReasoning(modelId) {
   const model = getModelById(modelId);
   if (!model || !model.reasoning) {

@@ -1,5 +1,5 @@
 import { logDebug } from '../logger.js';
-import { getSystemPrompt, getUserAgent } from '../config.js';
+import { getSystemPrompt, getSystemPromptMode, getUserAgent } from '../config.js';
 
 export function transformToCommon(openaiRequest) {
   logDebug('Transforming OpenAI request to Common format');
@@ -10,33 +10,57 @@ export function transformToCommon(openaiRequest) {
   };
 
   const systemPrompt = getSystemPrompt();
-  
-  if (systemPrompt) {
+  const systemPromptMode = getSystemPromptMode();
+
+  if (systemPrompt || systemPromptMode === 'off') {
     // 检查是否已有 system 消息
     const hasSystemMessage = commonRequest.messages?.some(m => m.role === 'system');
-    
-    if (hasSystemMessage) {
-      // 如果已有 system 消息，在第一个 system 消息前插入我们的 system prompt
-      commonRequest.messages = commonRequest.messages.map((msg, index) => {
-        if (msg.role === 'system' && index === commonRequest.messages.findIndex(m => m.role === 'system')) {
-          // 找到第一个 system 消息，前置我们的 prompt
-          return {
-            role: 'system',
-            content: systemPrompt + (typeof msg.content === 'string' ? msg.content : '')
-          };
-        }
-        return msg;
+
+    if (systemPromptMode === 'replace' && systemPrompt) {
+      // Replace: 替换所有 system 消息为配置的提示词
+      commonRequest.messages = commonRequest.messages?.filter(m => m.role !== 'system') || [];
+      commonRequest.messages.unshift({
+        role: 'system',
+        content: systemPrompt
       });
-    } else {
-      // 如果没有 system 消息，在 messages 数组最前面插入
-      commonRequest.messages = [
-        {
-          role: 'system',
-          content: systemPrompt
-        },
-        ...(commonRequest.messages || [])
-      ];
+    } else if (systemPromptMode === 'prepend' && systemPrompt) {
+      // Prepend: 配置提示词在前
+      if (hasSystemMessage) {
+        commonRequest.messages = commonRequest.messages.map((msg, index) => {
+          if (msg.role === 'system' && index === commonRequest.messages.findIndex(m => m.role === 'system')) {
+            return {
+              role: 'system',
+              content: systemPrompt + (typeof msg.content === 'string' ? msg.content : '')
+            };
+          }
+          return msg;
+        });
+      } else {
+        commonRequest.messages = [
+          { role: 'system', content: systemPrompt },
+          ...(commonRequest.messages || [])
+        ];
+      }
+    } else if (systemPromptMode === 'append' && systemPrompt) {
+      // Append: 配置提示词在后
+      if (hasSystemMessage) {
+        commonRequest.messages = commonRequest.messages.map((msg, index) => {
+          if (msg.role === 'system' && index === commonRequest.messages.findIndex(m => m.role === 'system')) {
+            return {
+              role: 'system',
+              content: (typeof msg.content === 'string' ? msg.content : '') + systemPrompt
+            };
+          }
+          return msg;
+        });
+      } else {
+        commonRequest.messages = [
+          { role: 'system', content: systemPrompt },
+          ...(commonRequest.messages || [])
+        ];
+      }
     }
+    // Off 模式: 不做任何修改，保留客户端原始的 system 消息
   }
 
   logDebug('Transformed Common request', commonRequest);

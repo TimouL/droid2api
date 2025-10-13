@@ -1,6 +1,6 @@
 import express from 'express';
 import fetch from 'node-fetch';
-import { getConfig, getModelById, getEndpointByType, getSystemPrompt, getModelReasoning } from './config.js';
+import { getConfig, getModelById, getEndpointByType, getSystemPrompt, getSystemPromptMode, getModelReasoning } from './config.js';
 import { logInfo, logDebug, logError, logRequest, logResponse } from './logger.js';
 import { transformToAnthropic, getAnthropicHeaders } from './transformers/request-anthropic.js';
 import { transformToOpenAI, getOpenAIHeaders } from './transformers/request-openai.js';
@@ -287,18 +287,30 @@ async function handleDirectResponses(req, res) {
     // 获取 headers
     const headers = getOpenAIHeaders(authHeader, clientHeaders);
 
-    // 注入系统提示到 instructions 字段
+    // 注入系统提示到 instructions 字段（基于 system_prompt_mode）
     const systemPrompt = getSystemPrompt();
+    const systemPromptMode = getSystemPromptMode();
     const modifiedRequest = { ...openaiRequest };
-    if (systemPrompt) {
-      // 如果已有 instructions，则在前面添加系统提示
+
+    if (systemPromptMode === 'replace' && systemPrompt) {
+      // Replace: 只使用配置的系统提示词
+      modifiedRequest.instructions = systemPrompt;
+    } else if (systemPromptMode === 'prepend' && systemPrompt) {
+      // Prepend: 配置提示词 + 客户端提示词
       if (modifiedRequest.instructions) {
         modifiedRequest.instructions = systemPrompt + modifiedRequest.instructions;
       } else {
-        // 否则直接设置系统提示
+        modifiedRequest.instructions = systemPrompt;
+      }
+    } else if (systemPromptMode === 'append' && systemPrompt) {
+      // Append: 客户端提示词 + 配置提示词
+      if (modifiedRequest.instructions) {
+        modifiedRequest.instructions = modifiedRequest.instructions + systemPrompt;
+      } else {
         modifiedRequest.instructions = systemPrompt;
       }
     }
+    // Off 模式: 不做任何修改，保留客户端原始的 instructions
 
     // 处理reasoning字段
     const reasoningLevel = getModelReasoning(modelId);
@@ -428,23 +440,42 @@ async function handleDirectMessages(req, res) {
     const isStreaming = anthropicRequest.stream === true;
     const headers = getAnthropicHeaders(authHeader, clientHeaders, isStreaming, modelId);
 
-    // 注入系统提示到 system 字段
+    // 注入系统提示到 system 字段（基于 system_prompt_mode）
     const systemPrompt = getSystemPrompt();
+    const systemPromptMode = getSystemPromptMode();
     const modifiedRequest = { ...anthropicRequest };
-    if (systemPrompt) {
+
+    if (systemPromptMode === 'replace' && systemPrompt) {
+      // Replace: 只使用配置的系统提示词
+      modifiedRequest.system = [
+        { type: 'text', text: systemPrompt }
+      ];
+    } else if (systemPromptMode === 'prepend' && systemPrompt) {
+      // Prepend: 配置提示词在前，客户端提示词在后
       if (modifiedRequest.system && Array.isArray(modifiedRequest.system)) {
-        // 如果已有 system 数组，则在最前面插入系统提示
         modifiedRequest.system = [
           { type: 'text', text: systemPrompt },
           ...modifiedRequest.system
         ];
       } else {
-        // 否则创建新的 system 数组
+        modifiedRequest.system = [
+          { type: 'text', text: systemPrompt }
+        ];
+      }
+    } else if (systemPromptMode === 'append' && systemPrompt) {
+      // Append: 客户端提示词在前，配置提示词在后
+      if (modifiedRequest.system && Array.isArray(modifiedRequest.system)) {
+        modifiedRequest.system = [
+          ...modifiedRequest.system,
+          { type: 'text', text: systemPrompt }
+        ];
+      } else {
         modifiedRequest.system = [
           { type: 'text', text: systemPrompt }
         ];
       }
     }
+    // Off 模式: 不做任何修改，保留客户端原始的 system
 
     // 处理thinking字段
     const reasoningLevel = getModelReasoning(modelId);
