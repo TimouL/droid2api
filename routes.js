@@ -1227,6 +1227,8 @@ router.get('/status', (req, res) => {
             <thead>
               <tr>
                 <th>Endpoint</th>
+                <th>Channel</th>
+                <th>Models</th>
                 <th>Success</th>
                 <th>Fail</th>
                 <th>Total</th>
@@ -1237,6 +1239,13 @@ router.get('/status', (req, res) => {
               ${stats.endpoints.map(ep => `
                 <tr>
                   <td><code>${ep.endpoint}</code></td>
+                  <td><span style="color: #2196F3; font-weight: 500;">${ep.channel}</span></td>
+                  <td style="max-width: 300px;">
+                    ${ep.models && ep.models.length > 0
+                      ? ep.models.map(m => `<span style="display: inline-block; margin: 2px 4px; padding: 2px 8px; background: #e3f2fd; color: #1565C0; border-radius: 4px; font-size: 12px;" title="${m.id}">${m.name}</span>`).join('')
+                      : '<span style="color: #888;">—</span>'
+                    }
+                  </td>
                   <td class="success">${ep.success}</td>
                   <td class="fail">${ep.fail}</td>
                   <td>${ep.total}</td>

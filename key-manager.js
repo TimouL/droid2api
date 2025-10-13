@@ -1,4 +1,5 @@
 import { logInfo, logDebug, logError } from './logger.js';
+import { getChannelByEndpoint, getModelsByChannel } from './config.js';
 
 /**
  * Key Manager - 管理多个API key的选择和统计
@@ -236,15 +237,22 @@ class KeyManager {
       })),
       endpoints: Object.entries(this.endpointStats)
         .filter(([_, stats]) => stats.success > 0 || stats.fail > 0)
-        .map(([endpoint, stats]) => ({
-          endpoint,
-          success: stats.success,
-          fail: stats.fail,
-          total: stats.success + stats.fail,
-          successRate: stats.success + stats.fail > 0
-            ? ((stats.success / (stats.success + stats.fail)) * 100).toFixed(2) + '%'
-            : 'N/A'
-        }))
+        .map(([endpoint, stats]) => {
+          const channel = getChannelByEndpoint(endpoint);
+          const models = channel ? getModelsByChannel(channel) : [];
+
+          return {
+            endpoint,
+            channel: channel || 'unknown',
+            models: models.map(m => ({ name: m.name, id: m.id })),
+            success: stats.success,
+            fail: stats.fail,
+            total: stats.success + stats.fail,
+            successRate: stats.success + stats.fail > 0
+              ? ((stats.success / (stats.success + stats.fail)) * 100).toFixed(2) + '%'
+              : 'N/A'
+          };
+        })
     };
   }
 }

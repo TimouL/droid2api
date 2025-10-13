@@ -113,3 +113,24 @@ export function isServerAuthEnabled() {
   // 默认值为true(启用服务器认证)
   return cfg.enable_server_auth !== false;
 }
+
+/**
+ * Get channel name by endpoint URL
+ * @param {string} endpointUrl - The endpoint base URL
+ * @returns {string|null} Channel name or null if not found
+ */
+export function getChannelByEndpoint(endpointUrl) {
+  const cfg = getConfig();
+  const endpoint = cfg.endpoint.find(e => e.base_url === endpointUrl);
+  return endpoint ? endpoint.name : null;
+}
+
+/**
+ * Get models by channel type
+ * @param {string} channelType - The channel type (e.g., 'anthropic', 'openai', 'common')
+ * @returns {Array} Array of model objects for the specified channel
+ */
+export function getModelsByChannel(channelType) {
+  const cfg = getConfig();
+  return cfg.models.filter(m => m.type === channelType);
+}
