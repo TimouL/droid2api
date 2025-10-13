@@ -153,10 +153,10 @@ async function handleChatCompletions(req, res) {
     });
 
     logInfo(`Response status: ${response.status}`);
-    
+
     // Record request result (2xx = success)
     const isSuccess = response.status >= 200 && response.status < 300;
-    recordRequestResult(endpoint.base_url, isSuccess);
+    recordRequestResult(endpoint.base_url, isSuccess, null, modelId, model.name);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -337,17 +337,17 @@ async function handleDirectResponses(req, res) {
     });
 
     logInfo(`Response status: ${response.status}`);
-    
+
     // Record request result (2xx = success)
     const isSuccess = response.status >= 200 && response.status < 300;
-    recordRequestResult(endpoint.base_url, isSuccess, response.status);
+    recordRequestResult(endpoint.base_url, isSuccess, response.status, modelId, model.name);
 
     if (!response.ok) {
       const errorText = await response.text();
       logError(`Endpoint error: ${response.status}`, new Error(errorText));
-      return res.status(response.status).json({ 
+      return res.status(response.status).json({
         error: `Endpoint returned ${response.status}`,
-        details: errorText 
+        details: errorText
       });
     }
 
@@ -508,17 +508,17 @@ async function handleDirectMessages(req, res) {
     });
 
     logInfo(`Response status: ${response.status}`);
-    
+
     // Record request result (2xx = success)
     const isSuccess = response.status >= 200 && response.status < 300;
-    recordRequestResult(endpoint.base_url, isSuccess, response.status);
+    recordRequestResult(endpoint.base_url, isSuccess, response.status, modelId, model.name);
 
     if (!response.ok) {
       const errorText = await response.text();
       logError(`Endpoint error: ${response.status}`, new Error(errorText));
-      return res.status(response.status).json({ 
+      return res.status(response.status).json({
         error: `Endpoint returned ${response.status}`,
-        details: errorText 
+        details: errorText
       });
     }
 
@@ -1228,7 +1228,7 @@ router.get('/status', (req, res) => {
               <tr>
                 <th>Endpoint</th>
                 <th>Channel</th>
-                <th>Models</th>
+                <th>Model</th>
                 <th>Success</th>
                 <th>Fail</th>
                 <th>Total</th>
@@ -1240,10 +1240,12 @@ router.get('/status', (req, res) => {
                 <tr>
                   <td><code>${ep.endpoint}</code></td>
                   <td><span style="color: #2196F3; font-weight: 500;">${ep.channel}</span></td>
-                  <td style="max-width: 300px;">
-                    ${ep.models && ep.models.length > 0
-                      ? ep.models.map(m => `<span style="display: inline-block; margin: 2px 4px; padding: 2px 8px; background: #e3f2fd; color: #1565C0; border-radius: 4px; font-size: 12px;" title="${m.id}">${m.name}</span>`).join('')
-                      : '<span style="color: #888;">—</span>'
+                  <td>
+                    ${ep.model
+                      ? `<span style="display: inline-block; padding: 4px 10px; background: #e8f5e9; color: #2E7D32; border-radius: 4px; font-size: 13px; font-weight: 500;" title="${ep.modelId || ep.model}">${ep.model}</span>`
+                      : (ep.models && ep.models.length > 0
+                          ? ep.models.map(m => `<span style="display: inline-block; margin: 2px 4px; padding: 2px 8px; background: #e3f2fd; color: #1565C0; border-radius: 4px; font-size: 12px;" title="${m.id}">${m.name}</span>`).join('')
+                          : '<span style="color: #888;">—</span>')
                     }
                   </td>
                   <td class="success">${ep.success}</td>

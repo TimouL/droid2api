@@ -351,12 +351,14 @@ export async function getApiKey(clientAuthorization = null) {
  * @param {string} endpoint - The endpoint URL
  * @param {boolean} success - Whether the request was successful (2xx status)
  * @param {number} statusCode - HTTP status code
+ * @param {string} modelId - Model ID used in the request (optional)
+ * @param {string} modelName - Model name used in the request (optional)
  */
-export function recordRequestResult(endpoint, success, statusCode) {
+export function recordRequestResult(endpoint, success, statusCode, modelId = null, modelName = null) {
   if ((authSource === 'factory_key' || authSource === 'factory_keys_file') && lastSelectedKey) {
     const keyManager = getKeyManager();
     if (keyManager) {
-      keyManager.recordResult(lastSelectedKey, endpoint, success, statusCode);
+      keyManager.recordResult(lastSelectedKey, endpoint, success, statusCode, modelId, modelName);
     }
   } else if (authSource === 'client' && lastSelectedKey) {
     // Record statistics for client-provided keys
@@ -384,15 +386,35 @@ export function recordRequestResult(endpoint, success, statusCode) {
       keyStats.fail++;
     }
 
-    // Update endpoint-level stats
-    if (!keyStats.endpoints.has(endpoint)) {
-      keyStats.endpoints.set(endpoint, { success: 0, fail: 0 });
-    }
-    const endpointStats = keyStats.endpoints.get(endpoint);
-    if (success) {
-      endpointStats.success++;
+    // Update endpoint-level stats (按 endpoint+model 维度)
+    if (modelId && modelName) {
+      const statsKey = `${endpoint}::${modelId}`;
+      if (!keyStats.endpoints.has(statsKey)) {
+        keyStats.endpoints.set(statsKey, {
+          success: 0,
+          fail: 0,
+          modelId,
+          modelName,
+          endpoint
+        });
+      }
+      const endpointStats = keyStats.endpoints.get(statsKey);
+      if (success) {
+        endpointStats.success++;
+      } else {
+        endpointStats.fail++;
+      }
     } else {
-      endpointStats.fail++;
+      // 向后兼容:如果没有提供 model 信息,按 endpoint 维度记录
+      if (!keyStats.endpoints.has(endpoint)) {
+        keyStats.endpoints.set(endpoint, { success: 0, fail: 0, endpoint });
+      }
+      const endpointStats = keyStats.endpoints.get(endpoint);
+      if (success) {
+        endpointStats.success++;
+      } else {
+        endpointStats.fail++;
+      }
     }
 
     // Update last update timestamp (especially important for new keys)
@@ -454,21 +476,43 @@ export function getClientKeysStats() {
 
   const endpoints = Array.from(globalEndpointStats.entries())
     .filter(([_, stats]) => stats.success > 0 || stats.fail > 0)
-    .map(([endpoint, stats]) => {
-      const channel = getChannelByEndpoint(endpoint);
-      const models = channel ? getModelsByChannel(channel) : [];
+    .map(([key, stats]) => {
+      // 判断是新格式(endpoint::model)还是旧格式(endpoint)
+      const isNewFormat = stats.modelId && stats.modelName;
 
-      return {
-        endpoint,
-        channel: channel || 'unknown',
-        models: models.map(m => ({ name: m.name, id: m.id })),
-        success: stats.success,
-        fail: stats.fail,
-        total: stats.success + stats.fail,
-        successRate: stats.success + stats.fail > 0
-          ? ((stats.success / (stats.success + stats.fail)) * 100).toFixed(2) + '%'
-          : 'N/A'
-      };
+      if (isNewFormat) {
+        // 新格式:按 model 维度展示
+        const channel = getChannelByEndpoint(stats.endpoint);
+        return {
+          endpoint: stats.endpoint,
+          channel: channel || 'unknown',
+          model: stats.modelName,
+          modelId: stats.modelId,
+          success: stats.success,
+          fail: stats.fail,
+          total: stats.success + stats.fail,
+          successRate: stats.success + stats.fail > 0
+            ? ((stats.success / (stats.success + stats.fail)) * 100).toFixed(2) + '%'
+            : 'N/A'
+        };
+      } else {
+        // 旧格式(向后兼容):按 endpoint 维度展示,包含该 channel 下的所有 models
+        const endpoint = stats.endpoint || key;
+        const channel = getChannelByEndpoint(endpoint);
+        const models = channel ? getModelsByChannel(channel) : [];
+
+        return {
+          endpoint,
+          channel: channel || 'unknown',
+          models: models.map(m => ({ name: m.name, id: m.id })),
+          success: stats.success,
+          fail: stats.fail,
+          total: stats.success + stats.fail,
+          successRate: stats.success + stats.fail > 0
+            ? ((stats.success / (stats.success + stats.fail)) * 100).toFixed(2) + '%'
+            : 'N/A'
+        };
+      }
     });
 
   return {

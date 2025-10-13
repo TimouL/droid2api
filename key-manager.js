@@ -18,7 +18,8 @@ class KeyManager {
     
     this.algorithm = algorithm; // 'weighted' or 'simple'
     this.simpleIndex = 0; // 用于simple算法的当前索引
-    this.endpointStats = {}; // 端点统计 { endpoint: { success: 0, fail: 0 } }
+    // 改为按 endpoint+model 维度统计: { 'endpoint::model': { success: 0, fail: 0, modelId, modelName, endpoint } }
+    this.endpointStats = {};
     this.removeOn402 = removeOn402; // 是否在402时移除key
     this.deprecatedKeys = []; // 已废弃的key列表
     this.skipThreshold = 0; // 剩余≤阈值则视为用尽
@@ -100,8 +101,10 @@ class KeyManager {
    * @param {string} endpoint - 端点URL
    * @param {boolean} success - 是否成功
    * @param {number} statusCode - HTTP状态码
+   * @param {string} modelId - 使用的模型ID(可选)
+   * @param {string} modelName - 使用的模型名称(可选)
    */
-  recordResult(key, endpoint, success, statusCode = null) {
+  recordResult(key, endpoint, success, statusCode = null, modelId = null, modelName = null) {
     // 记录key的统计
     const keyObj = this.keys.find(k => k.key === key);
     if (keyObj) {
@@ -111,23 +114,43 @@ class KeyManager {
         keyObj.fail++;
       }
       logDebug(`Key stats updated: success=${keyObj.success}, fail=${keyObj.fail}`);
-      
+
       // 检查是否需要废弃key（402状态码）
       if (this.removeOn402 && statusCode === 402 && !keyObj.deprecated) {
         this.deprecateKey(key);
       }
     }
-    
-    // 记录端点的统计
-    if (!this.endpointStats[endpoint]) {
-      this.endpointStats[endpoint] = { success: 0, fail: 0 };
-    }
-    if (success) {
-      this.endpointStats[endpoint].success++;
+
+    // 如果提供了 model 信息,按 endpoint+model 维度记录;否则按 endpoint 维度记录(向后兼容)
+    if (modelId && modelName) {
+      const statsKey = `${endpoint}::${modelId}`;
+      if (!this.endpointStats[statsKey]) {
+        this.endpointStats[statsKey] = {
+          success: 0,
+          fail: 0,
+          modelId,
+          modelName,
+          endpoint
+        };
+      }
+      if (success) {
+        this.endpointStats[statsKey].success++;
+      } else {
+        this.endpointStats[statsKey].fail++;
+      }
+      logDebug(`Endpoint+Model stats updated: ${statsKey}, success=${this.endpointStats[statsKey].success}, fail=${this.endpointStats[statsKey].fail}`);
     } else {
-      this.endpointStats[endpoint].fail++;
+      // 向后兼容:如果没有提供 model 信息,仍然记录到 endpoint 级别
+      if (!this.endpointStats[endpoint]) {
+        this.endpointStats[endpoint] = { success: 0, fail: 0, endpoint };
+      }
+      if (success) {
+        this.endpointStats[endpoint].success++;
+      } else {
+        this.endpointStats[endpoint].fail++;
+      }
+      logDebug(`Endpoint stats updated: ${endpoint}, success=${this.endpointStats[endpoint].success}, fail=${this.endpointStats[endpoint].fail}`);
     }
-    logDebug(`Endpoint stats updated: ${endpoint}, success=${this.endpointStats[endpoint].success}, fail=${this.endpointStats[endpoint].fail}`);
   }
   
   /**
@@ -237,21 +260,43 @@ class KeyManager {
       })),
       endpoints: Object.entries(this.endpointStats)
         .filter(([_, stats]) => stats.success > 0 || stats.fail > 0)
-        .map(([endpoint, stats]) => {
-          const channel = getChannelByEndpoint(endpoint);
-          const models = channel ? getModelsByChannel(channel) : [];
+        .map(([key, stats]) => {
+          // 判断是新格式(endpoint::model)还是旧格式(endpoint)
+          const isNewFormat = stats.modelId && stats.modelName;
 
-          return {
-            endpoint,
-            channel: channel || 'unknown',
-            models: models.map(m => ({ name: m.name, id: m.id })),
-            success: stats.success,
-            fail: stats.fail,
-            total: stats.success + stats.fail,
-            successRate: stats.success + stats.fail > 0
-              ? ((stats.success / (stats.success + stats.fail)) * 100).toFixed(2) + '%'
-              : 'N/A'
-          };
+          if (isNewFormat) {
+            // 新格式:按 model 维度展示
+            const channel = getChannelByEndpoint(stats.endpoint);
+            return {
+              endpoint: stats.endpoint,
+              channel: channel || 'unknown',
+              model: stats.modelName,
+              modelId: stats.modelId,
+              success: stats.success,
+              fail: stats.fail,
+              total: stats.success + stats.fail,
+              successRate: stats.success + stats.fail > 0
+                ? ((stats.success / (stats.success + stats.fail)) * 100).toFixed(2) + '%'
+                : 'N/A'
+            };
+          } else {
+            // 旧格式(向后兼容):按 endpoint 维度展示,包含该 channel 下的所有 models
+            const endpoint = stats.endpoint || key;
+            const channel = getChannelByEndpoint(endpoint);
+            const models = channel ? getModelsByChannel(channel) : [];
+
+            return {
+              endpoint,
+              channel: channel || 'unknown',
+              models: models.map(m => ({ name: m.name, id: m.id })),
+              success: stats.success,
+              fail: stats.fail,
+              total: stats.success + stats.fail,
+              successRate: stats.success + stats.fail > 0
+                ? ((stats.success / (stats.success + stats.fail)) * 100).toFixed(2) + '%'
+                : 'N/A'
+            };
+          }
         })
     };
   }
