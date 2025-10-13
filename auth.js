@@ -452,11 +452,18 @@ export function getClientKeysStats() {
     const stats = entry.stats;
 
     // Aggregate endpoint stats
-    stats.endpoints.forEach((endpointStats, endpoint) => {
-      if (!globalEndpointStats.has(endpoint)) {
-        globalEndpointStats.set(endpoint, { success: 0, fail: 0 });
+    stats.endpoints.forEach((endpointStats, statsKey) => {
+      if (!globalEndpointStats.has(statsKey)) {
+        // 保留完整的统计信息,包括 endpoint、modelId、modelName
+        globalEndpointStats.set(statsKey, {
+          success: 0,
+          fail: 0,
+          endpoint: endpointStats.endpoint,
+          modelId: endpointStats.modelId,
+          modelName: endpointStats.modelName
+        });
       }
-      const globalStats = globalEndpointStats.get(endpoint);
+      const globalStats = globalEndpointStats.get(statsKey);
       globalStats.success += endpointStats.success;
       globalStats.fail += endpointStats.fail;
     });
