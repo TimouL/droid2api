@@ -867,6 +867,61 @@ router.get('/status', (req, res) => {
         </div>
         ` : ''}
         
+        <!-- 手动输入 Key 查询区域 -->
+        <div class="section">
+          <h2>手动输入 Key 查询</h2>
+          <div style="margin-bottom: 20px;">
+            <label for="manual-keys" style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">
+              批量输入 API Keys（一行一个）:
+            </label>
+            <textarea id="manual-keys" rows="6" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-family: monospace; font-size: 14px;" placeholder="sk-ant-api03-xxxxx&#10;sk-ant-api03-yyyyy&#10;sk-ant-api03-zzzzz"></textarea>
+            <button class="btn" style="margin-top: 10px;" onclick="queryManualKeys()">查询 Keys 状态</button>
+            <button class="btn" style="margin-top: 10px; background: #f44336;" onclick="clearManualKeys()">清空输入</button>
+          </div>
+
+          <!-- 手动输入 Key 汇总数据 -->
+          <div id="manual-summary" style="display: none; margin-top: 20px;">
+            <h3 style="color: #555; border-bottom: 2px solid #2196F3; padding-bottom: 8px;">手动输入 Key 汇总</h3>
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-top: 15px;">
+              <div class="info" style="text-align: center;">
+                <div style="font-size: 12px; color: #888; margin-bottom: 5px;">总计额度 (Total Allowance)</div>
+                <div id="manual-total" class="number" style="font-size: 24px; font-weight: bold; color: #4CAF50;">0</div>
+              </div>
+              <div class="info" style="text-align: center;">
+                <div style="font-size: 12px; color: #888; margin-bottom: 5px;">已使用 (Total Used)</div>
+                <div id="manual-used" class="number" style="font-size: 24px; font-weight: bold; color: #FF9800;">0</div>
+              </div>
+              <div class="info" style="text-align: center;">
+                <div style="font-size: 12px; color: #888; margin-bottom: 5px;">剩余额度 (Remaining)</div>
+                <div id="manual-remaining" class="number" style="font-size: 24px; font-weight: bold; color: #2196F3;">0</div>
+              </div>
+              <div class="info" style="text-align: center;">
+                <div style="font-size: 12px; color: #888; margin-bottom: 5px;">使用百分比 (Usage %)</div>
+                <div id="manual-usage-percent" style="font-size: 24px; font-weight: bold; color: #9C27B0;">0.00%</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 手动输入 Key 详细列表 -->
+          <div id="manual-keys-table" style="display: none; margin-top: 20px;">
+            <h3 style="color: #555; border-bottom: 2px solid #2196F3; padding-bottom: 8px;">手动输入 Key 详细信息</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th class="nowrap">Key</th>
+                  <th class="number">Usage %</th>
+                  <th class="number">Balance (Remaining / Total)</th>
+                  <th class="nowrap">Start</th>
+                  <th class="nowrap">End</th>
+                  <th class="nowrap">Status</th>
+                </tr>
+              </thead>
+              <tbody id="manual-keys-tbody">
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="section">
           <h2>API Keys Statistics (Active)</h2>
           <div class="controls">
@@ -1098,6 +1153,109 @@ router.get('/status', (req, res) => {
                 }
                 lastKnownUpdate = data.lastUpdate;
               } catch(e) {}
+            }
+
+            // 手动输入 Key 查询功能
+            async function queryManualKeys() {
+              const textarea = document.getElementById('manual-keys');
+              const keys = textarea.value
+                .split('\\n')
+                .map(k => k.trim())
+                .filter(k => k.length > 0);
+
+              if (keys.length === 0) {
+                alert('请输入至少一个 API Key');
+                return;
+              }
+
+              // 显示加载状态
+              const summaryDiv = document.getElementById('manual-summary');
+              const tableDiv = document.getElementById('manual-keys-table');
+              const tbody = document.getElementById('manual-keys-tbody');
+
+              summaryDiv.style.display = 'block';
+              tableDiv.style.display = 'block';
+              tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">查询中...</td></tr>';
+
+              try {
+                const response = await fetch('/status/query-keys', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ keys })
+                });
+
+                const data = await response.json();
+                if (!response.ok || data.error) {
+                  throw new Error(data.error || 'Query failed');
+                }
+
+                // 计算汇总数据
+                let totalAllowance = 0;
+                let totalUsed = 0;
+
+                data.results.forEach(result => {
+                  if (!result.error) {
+                    totalAllowance += Number(result.totalAllowance || 0);
+                    totalUsed += Number(result.used || 0);
+                  }
+                });
+
+                const totalRemaining = Math.max(0, totalAllowance - totalUsed);
+                const usagePercent = totalAllowance > 0 ? (totalUsed / totalAllowance) : 0;
+
+                // 更新汇总数据显示
+                document.getElementById('manual-total').textContent = formatNumber(totalAllowance);
+                document.getElementById('manual-used').textContent = formatNumber(totalUsed);
+                document.getElementById('manual-remaining').textContent = formatNumber(totalRemaining);
+                document.getElementById('manual-usage-percent').textContent = formatPercentage(usagePercent);
+
+                // 更新详细列表
+                tbody.innerHTML = data.results.map((result, index) => {
+                  const key = keys[index];
+                  const maskedKey = key.substring(0, 12) + '...' + key.substring(key.length - 4);
+
+                  if (result.error) {
+                    return \`
+                      <tr>
+                        <td class="nowrap"><code>\${maskedKey}</code></td>
+                        <td colspan="5" style="color: #f44336;">错误: \${result.error}</td>
+                      </tr>
+                    \`;
+                  }
+
+                  const total = Number(result.totalAllowance || 0);
+                  const used = Number(result.used || 0);
+                  const remaining = Math.max(0, total - used);
+                  const usageRatio = total > 0 ? used / total : 0;
+                  const startDate = result.startDate ? new Date(result.startDate).toLocaleString() : '—';
+                  const endDate = result.endDate ? new Date(result.endDate).toLocaleString() : '—';
+                  const status = remaining > 0 ? '<span style="color: #4CAF50;">✓ 可用</span>' : '<span style="color: #f44336;">✗ 已用尽</span>';
+
+                  return \`
+                    <tr class="\${remaining <= 0 ? 'depleted' : ''}">
+                      <td class="nowrap"><code>\${maskedKey}</code></td>
+                      <td class="number">\${formatPercentage(usageRatio)}</td>
+                      <td class="number">\${formatNumber(remaining)} / \${formatNumber(total)}</td>
+                      <td class="date">\${startDate}</td>
+                      <td class="date">\${endDate}</td>
+                      <td class="nowrap">\${status}</td>
+                    </tr>
+                  \`;
+                }).join('');
+
+              } catch (error) {
+                tbody.innerHTML = \`<tr><td colspan="6" style="text-align: center; color: #f44336;">查询失败: \${error.message}</td></tr>\`;
+              }
+            }
+
+            function clearManualKeys() {
+              const textarea = document.getElementById('manual-keys');
+              const summaryDiv = document.getElementById('manual-summary');
+              const tableDiv = document.getElementById('manual-keys-table');
+
+              textarea.value = '';
+              summaryDiv.style.display = 'none';
+              tableDiv.style.display = 'none';
             }
 
             // 首次进入：不自动刷新余额，仅初始化控件
@@ -1360,5 +1518,60 @@ router.get('/status/client-key-update', (_req, res) => {
     res.json({ lastUpdate: timestamp });
   } catch (e) {
     res.status(200).json({ lastUpdate: null });
+  }
+});
+
+// POST /status/query-keys - 批量查询手动输入的 keys
+router.post('/status/query-keys', express.json(), async (req, res) => {
+  logInfo('POST /status/query-keys');
+
+  try {
+    const keys = req.body?.keys;
+
+    if (!Array.isArray(keys) || keys.length === 0) {
+      return res.status(400).json({ error: 'keys array is required' });
+    }
+
+    // 限制最大查询数量
+    if (keys.length > 50) {
+      return res.status(400).json({ error: 'Maximum 50 keys allowed per request' });
+    }
+
+    // 并发查询所有 keys
+    const results = await Promise.all(
+      keys.map(async (key) => {
+        try {
+          // 验证 key 格式（基本验证）
+          if (!key || typeof key !== 'string' || key.length < 20) {
+            return { error: 'Invalid key format' };
+          }
+
+          const usage = await fetchUsageForKeyRaw(key);
+
+          if (usage.error) {
+            return { error: usage.error };
+          }
+
+          return {
+            totalAllowance: usage.totalAllowance || 0,
+            used: usage.used || 0,
+            usedRatio: usage.usedRatio || 0,
+            startDate: usage.startDate || null,
+            endDate: usage.endDate || null
+          };
+        } catch (error) {
+          logError('Error querying manual key', error);
+          return { error: 'Query failed' };
+        }
+      })
+    );
+
+    res.json({ results });
+  } catch (error) {
+    logError('Error in POST /status/query-keys', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message
+    });
   }
 });
