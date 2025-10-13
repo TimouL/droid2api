@@ -1236,10 +1236,25 @@ router.get('/status', (req, res) => {
               </tr>
             </thead>
             <tbody>
-              ${stats.endpoints.map(ep => `
+              ${stats.endpoints.map(ep => {
+                // 根据 channel 类型选择图标和颜色
+                const channelInfo = {
+                  'anthropic': { icon: '🤖', color: '#D97706', bg: '#FEF3C7' },
+                  'openai': { icon: '🧠', color: '#10B981', bg: '#D1FAE5' },
+                  'common': { icon: '🌐', color: '#6366F1', bg: '#E0E7FF' },
+                  'unknown': { icon: '❓', color: '#6B7280', bg: '#F3F4F6' }
+                };
+                const info = channelInfo[ep.channel] || channelInfo['unknown'];
+
+                return `
                 <tr>
                   <td><code>${ep.endpoint}</code></td>
-                  <td><span style="color: #2196F3; font-weight: 500;">${ep.channel}</span></td>
+                  <td>
+                    <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: ${info.bg}; color: ${info.color}; border-radius: 6px; font-weight: 500; font-size: 13px;">
+                      <span style="font-size: 16px;">${info.icon}</span>
+                      <span>${ep.channel}</span>
+                    </span>
+                  </td>
                   <td>
                     ${ep.model
                       ? `<span style="display: inline-block; padding: 4px 10px; background: #e8f5e9; color: #2E7D32; border-radius: 4px; font-size: 13px; font-weight: 500;" title="${ep.modelId || ep.model}">${ep.model}</span>`
@@ -1253,7 +1268,8 @@ router.get('/status', (req, res) => {
                   <td>${ep.total}</td>
                   <td class="rate">${ep.successRate}</td>
                 </tr>
-              `).join('')}
+                `;
+              }).join('')}
             </tbody>
           </table>
         </div>
