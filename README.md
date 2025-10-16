@@ -45,9 +45,10 @@ OpenAI 兼容的本地代理，负责统一转发不同厂商的 LLM 接口请�
 - 控制中间件 `serverAuthMiddleware` 是否要求所有请求携带服务器访问密钥。
 - 优先级：环境变量 `ENABLE_SERVER_AUTH` > `config.json` 的 `enable_server_auth` > 默认值 `true`。
 - 当开关开启时：
-  1. 建议在启动前通过环境变量 `SERVER_AUTH_KEY` 配置密钥；如果需要使用 `/status` 页面表单初始化，请暂时关闭认证完成设置后再重新开启。
-  2. 所有请求需携带 `Authorization: Bearer <server-key>` 才能通过中间件。
-  3. `/status` 同样受保护。
+  1. 建议在启动前通过环境变量 `SERVER_AUTH_KEY` 配置密钥；如需使用 `/status` 表单首次写入，可在未配置密钥时直接访问该页面提交。
+  2. 访问 `GET /status` 会先出现登录表单，输入服务器访问密钥后方可查看详情；若尚未配置密钥，可在该页面直接完成首次设置。
+  3. 其他 API 请求需携带 `Authorization: Bearer <server-key>` 才能通过中间件。
+
 - 当开关关闭时，中间件直接放行，不校验服务器密钥。
 
 > 建议：生产环境启用服务器认证，并使用环境变量保存密钥；内网或本地调试可关闭。
@@ -71,6 +72,7 @@ OpenAI 兼容的本地代理，负责统一转发不同厂商的 LLM 接口请�
 
 ### 安全提示
 - **开启服务器认证时**：`Authorization` 头通常仅用于携带服务器密钥。若同时需要上游凭据，请使用 `X-Endpoint-Authorization` 或 `X-API-Key`，避免误把服务器密钥转发给上游。
+- **`GET /status` 登录表单**：页面不会要求 `Authorization` 头，但会校验输入的服务器密钥，并在浏览器中写入基于密钥摘要的短时 Cookie；请确认部署环境与浏览器的物理安全。
 - **关闭服务器认证且未配置内部 Key 时**：客户端的上述头部会直接被转发；如只提供 `Authorization`，它会被用作上游凭据。
 
 ## 状态与监控

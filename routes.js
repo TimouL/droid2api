@@ -1,6 +1,7 @@
 import express from 'express';
+import express from 'express';
 import fetch from 'node-fetch';
-import { getConfig, getModelById, getEndpointByType, getSystemPrompt, getSystemPromptMode, getModelReasoning } from './config.js';
+import { getConfig, getModelById, getEndpointByType, getSystemPrompt, getSystemPromptMode, getModelReasoning, isServerAuthEnabled } from './config.js';
 import { logInfo, logDebug, logError, logRequest, logResponse } from './logger.js';
 import { transformToAnthropic, getAnthropicHeaders } from './transformers/request-anthropic.js';
 import { transformToOpenAI, getOpenAIHeaders } from './transformers/request-openai.js';
@@ -9,9 +10,75 @@ import { AnthropicResponseTransformer } from './transformers/response-anthropic.
 import { OpenAIResponseTransformer } from './transformers/response-openai.js';
 import { getApiKey, recordRequestResult, getClientKeysStats, getClientKeyByIndex, getLastClientKeyUpdate } from './auth.js';
 import { getKeyManager } from './key-manager.js';
-import { isServerKeySet, setServerKey } from './server-auth.js';
+import { isServerKeySet, setServerKey, verifyServerKey, getStatusCookieName, hasValidStatusCookie, setStatusAuthCookie, clearStatusAuthCookie } from './server-auth.js';
 
 const router = express.Router();
+
+function getCookieValue(req, name) {
+  const cookieHeader = req.headers?.cookie;
+  if (!cookieHeader || typeof cookieHeader !== 'string') {
+    return null;
+  }
+  const cookies = cookieHeader.split(';');
+  for (const cookie of cookies) {
+    const trimmed = cookie.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const separatorIndex = trimmed.indexOf('=');
+    const cookieName = separatorIndex > -1 ? trimmed.substring(0, separatorIndex) : trimmed;
+    if (cookieName === name) {
+      const cookieValue = separatorIndex > -1 ? trimmed.substring(separatorIndex + 1) : '';
+      try {
+        return decodeURIComponent(cookieValue);
+      } catch (_err) {
+        return cookieValue;
+      }
+    }
+  }
+  return null;
+}
+
+function renderStatusLoginPage(errorMessage = null) {
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>droid2api Status - Login</title>
+      <style>
+        body { font-family: Arial, sans-serif; max-width: 480px; margin: 80px auto; padding: 20px; background: #f5f5f5; }
+        .card { background: white; padding: 32px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+        h1 { text-align: center; margin-bottom: 24px; color: #333; }
+        label { display: block; margin: 12px 0 8px; color: #555; font-weight: 600; }
+        input[type="password"] { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; box-sizing: border-box; }
+        button { width: 100%; margin-top: 20px; background: #4CAF50; color: white; border: none; padding: 12px 0; border-radius: 8px; font-size: 16px; cursor: pointer; }
+        button:hover { background: #43A047; }
+        .hint { margin-top: 16px; font-size: 14px; color: #777; line-height: 1.5; }
+        .error { background: #ffebee; color: #d32f2f; border-left: 4px solid #d32f2f; padding: 12px; border-radius: 6px; margin-bottom: 16px; }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <h1>droid2api</h1>
+        ${errorMessage ? `<div class="error">${errorMessage}</div>` : ''}
+        <form method="POST" action="/status/login">
+          <label for="password">请输入服务器访问密钥</label>
+          <input type="password" id="password" name="password" placeholder="Authorization Bearer 密钥" autofocus required />
+          <button type="submit">进入状态页</button>
+        </form>
+        <div class="hint">
+          <p>提示：</p>
+          <ul style="margin: 8px 0 0 16px; padding: 0; list-style: disc;">
+            <li>使用与 API 请求相同的服务器访问密钥。</li>
+            <li>若尚未设置密钥，可在此页面完成首次设置。</li>
+          </ul>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+}
 
 /**
  * Convert a /v1/responses API result to a /v1/chat/completions-compatible format.
@@ -583,8 +650,20 @@ router.get('/status', (req, res) => {
   logInfo('GET /status');
   
   try {
+    const serverAuthEnabled = isServerAuthEnabled();
+    const serverKeySet = isServerKeySet();
+
+    if (serverAuthEnabled && serverKeySet) {
+      const cookieValue = getCookieValue(req, getStatusCookieName());
+      if (!hasValidStatusCookie(cookieValue)) {
+        clearStatusAuthCookie(res);
+        res.status(200).set('Content-Type', 'text/html; charset=utf-8');
+        return res.send(renderStatusLoginPage());
+      }
+    }
+
     // First-visit setup: if no server key yet, present setup form
-    if (!isServerKeySet()) {
+    if (!serverKeySet) {
       return res.send(`
         <!DOCTYPE html>
         <html>
@@ -1902,6 +1981,44 @@ router.get('/status', (req, res) => {
       error: 'Internal server error',
       message: error.message 
     });
+  }
+});
+
+router.post('/status/login', (req, res) => {
+  logInfo('POST /status/login');
+
+  try {
+    if (!isServerAuthEnabled()) {
+      return res.redirect('/status');
+    }
+
+    if (!isServerKeySet()) {
+      // 未设置密钥时直接进入首次配置流程
+      return res.redirect('/status');
+    }
+
+    const rawPassword = req.body?.password;
+    const password = typeof rawPassword === 'string' ? rawPassword.trim() : '';
+
+    if (!password) {
+      clearStatusAuthCookie(res);
+      res.status(400).set('Content-Type', 'text/html; charset=utf-8');
+      return res.send(renderStatusLoginPage('请输入服务器访问密钥。'));
+    }
+
+    if (!verifyServerKey(password)) {
+      clearStatusAuthCookie(res);
+      res.status(401).set('Content-Type', 'text/html; charset=utf-8');
+      return res.send(renderStatusLoginPage('密钥错误，请重新输入。'));
+    }
+
+    setStatusAuthCookie(res);
+    return res.redirect('/status');
+  } catch (error) {
+    logError('Error in POST /status/login', error);
+    clearStatusAuthCookie(res);
+    res.status(500).set('Content-Type', 'text/html; charset=utf-8');
+    return res.send(renderStatusLoginPage('服务器内部错误，请稍后再试。'));
   }
 });
 
