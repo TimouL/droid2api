@@ -5,3 +5,4 @@ node_modules/
 *.txt
 server-key.json
 .spec-workflow/
+test-auth-priority.md

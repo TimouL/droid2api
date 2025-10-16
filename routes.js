@@ -104,17 +104,24 @@ async function handleChatCompletions(req, res) {
     logInfo(`Routing to ${model.type} endpoint: ${endpoint.base_url}`);
 
     // Get API key (will auto-refresh if needed)
-    // When server access key is enabled, Authorization header is reserved for server auth.
-    // To pass a client-provided upstream token (client mode), use X-Endpoint-Authorization.
+    // Priority for client-provided keys:
+    // 1. X-Endpoint-Authorization (explicit upstream auth, highest priority)
+    // 2. Authorization (standard header, can be used when server auth passes or is disabled)
     let authHeader;
     try {
-      const clientUpstreamAuth = req.headers['x-endpoint-authorization'] || null;
+      const xEndpointAuth = req.headers['x-endpoint-authorization'] || null;
+      const authorization = req.headers['authorization'] || null;
+
+      // X-Endpoint-Authorization has higher priority than Authorization
+      // This allows explicit upstream auth even when Authorization is present
+      const clientUpstreamAuth = xEndpointAuth || authorization || null;
+
       authHeader = await getApiKey(clientUpstreamAuth);
     } catch (error) {
       logError('Failed to get API key', error);
-      return res.status(500).json({ 
-        error: 'API key not available',
-        message: 'Failed to get or refresh API key. Please check server logs.'
+      return res.status(401).json({
+        error: 'No authorization available',
+        message: 'Please provide one of: FACTORY_API_KEY (env), factory_keys.txt (file), refresh token, or Authorization/X-Endpoint-Authorization header'
       });
     }
 
@@ -266,24 +273,32 @@ async function handleDirectResponses(req, res) {
 
     logInfo(`Direct forwarding to ${model.type} endpoint: ${endpoint.base_url}`);
 
-    // Get API key - support client x-api-key for anthropic endpoint
+    // Get API key - support multiple client auth headers
+    // Priority: X-API-Key > X-Endpoint-Authorization > Authorization
     let authHeader;
     try {
-      const clientAuthFromXApiKey = req.headers['x-api-key']
+      const xApiKey = req.headers['x-api-key']
         ? `Bearer ${req.headers['x-api-key']}`
         : null;
-      const clientUpstreamAuth = req.headers['x-endpoint-authorization'] || null;
-      authHeader = await getApiKey(clientUpstreamAuth || clientAuthFromXApiKey);
+      const xEndpointAuth = req.headers['x-endpoint-authorization'] || null;
+      const authorization = req.headers['authorization'] || null;
+
+      // X-API-Key has highest priority (Anthropic-specific header)
+      // X-Endpoint-Authorization has second priority (explicit upstream auth)
+      // Authorization has third priority (standard header, when server auth passes or is disabled)
+      const clientUpstreamAuth = xApiKey || xEndpointAuth || authorization || null;
+
+      authHeader = await getApiKey(clientUpstreamAuth);
     } catch (error) {
       logError('Failed to get API key', error);
-      return res.status(500).json({ 
-        error: 'API key not available',
-        message: 'Failed to get or refresh API key. Please check server logs.'
+      return res.status(401).json({
+        error: 'No authorization available',
+        message: 'Please provide one of: FACTORY_API_KEY (env), factory_keys.txt (file), refresh token, or X-API-Key/Authorization/X-Endpoint-Authorization header'
       });
     }
 
     const clientHeaders = req.headers;
-    
+
     // 获取 headers
     const headers = getOpenAIHeaders(authHeader, clientHeaders);
 
@@ -418,24 +433,32 @@ async function handleDirectMessages(req, res) {
 
     logInfo(`Direct forwarding to ${model.type} endpoint: ${endpoint.base_url}`);
 
-    // Get API key - support client x-api-key for anthropic endpoint
+    // Get API key - support multiple client auth headers
+    // Priority: X-API-Key > X-Endpoint-Authorization > Authorization
     let authHeader;
     try {
-      const clientAuthFromXApiKey = req.headers['x-api-key']
+      const xApiKey = req.headers['x-api-key']
         ? `Bearer ${req.headers['x-api-key']}`
         : null;
-      const clientUpstreamAuth = req.headers['x-endpoint-authorization'] || null;
-      authHeader = await getApiKey(clientUpstreamAuth || clientAuthFromXApiKey);
+      const xEndpointAuth = req.headers['x-endpoint-authorization'] || null;
+      const authorization = req.headers['authorization'] || null;
+
+      // X-API-Key has highest priority (Anthropic-specific header)
+      // X-Endpoint-Authorization has second priority (explicit upstream auth)
+      // Authorization has third priority (standard header, when server auth passes or is disabled)
+      const clientUpstreamAuth = xApiKey || xEndpointAuth || authorization || null;
+
+      authHeader = await getApiKey(clientUpstreamAuth);
     } catch (error) {
       logError('Failed to get API key', error);
-      return res.status(500).json({ 
-        error: 'API key not available',
-        message: 'Failed to get or refresh API key. Please check server logs.'
+      return res.status(401).json({
+        error: 'No authorization available',
+        message: 'Please provide one of: FACTORY_API_KEY (env), factory_keys.txt (file), refresh token, or X-API-Key/Authorization/X-Endpoint-Authorization header'
       });
     }
 
     const clientHeaders = req.headers;
-    
+
     // 获取 headers
     const isStreaming = anthropicRequest.stream === true;
     const headers = getAnthropicHeaders(authHeader, clientHeaders, isStreaming, modelId);
