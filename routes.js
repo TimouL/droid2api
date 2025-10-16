@@ -1,5 +1,4 @@
 import express from 'express';
-import express from 'express';
 import fetch from 'node-fetch';
 import { getConfig, getModelById, getEndpointByType, getSystemPrompt, getSystemPromptMode, getModelReasoning, isServerAuthEnabled } from './config.js';
 import { logInfo, logDebug, logError, logRequest, logResponse } from './logger.js';
