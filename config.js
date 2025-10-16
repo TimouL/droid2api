@@ -74,7 +74,7 @@ export function getModelReasoning(modelId) {
 
 export function getUserAgent() {
   const cfg = getConfig();
-  return cfg.user_agent || 'factory-cli/0.19.3';
+  return cfg.user_agent || 'factory-cli/0.20.0';
 }
 
 export function getRoundRobin() {

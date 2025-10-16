@@ -1969,7 +1969,7 @@ async function fetchUsageForKeyRaw(apiKey) {
     const configUA = (() => { try { return getConfig()?.user_agent; } catch { return null; } })();
     const headers = {
       'Authorization': `Bearer ${apiKey}`,
-      'User-Agent': configUA || 'factory-cli/0.19.3'
+      'User-Agent': configUA || 'factory-cli/0.20.0'
     };
     const resp = await fetch(url, { method: 'GET', headers });
     if (!resp.ok) {

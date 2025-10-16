@@ -6,3 +6,4 @@ node_modules/
 server-key.json
 .spec-workflow/
 test-auth-priority.md
+.serena/
